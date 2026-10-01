@@ -36,7 +36,9 @@ export function timeAgo(iso: string, now: number = Date.now()): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return iso;
   const secs = Math.max(0, Math.floor((now - then) / 1000));
-  if (secs < 60) return `${secs}s ago`;
+  // Round the sub-minute window to "just now" so the label doesn't tick every
+  // second on each snapshot refresh — minute granularity is enough here.
+  if (secs < 60) return "just now";
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
