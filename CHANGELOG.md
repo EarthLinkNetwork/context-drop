@@ -5,6 +5,13 @@ All notable changes to Context Drop are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-10-01
+
+### Fixed
+
+- **Last Dispatch** no longer ticks up every second — times under a minute now
+  show "just now", and the label only changes at minute/hour/day granularity.
+
 ## [0.1.1] - 2026-10-01
 
 ### Added
