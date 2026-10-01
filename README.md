@@ -43,7 +43,9 @@ The main agent must not read packet text, logs, images, JSON, or raw files. It w
 
 ## 3. Install
 
-**1. Install the desktop app.** Context Drop v1.0 officially supports **macOS** and **Windows** (Linux is experimental). The desktop app ships the `context-drop` companion CLI — end users need no Node.js or npm.
+**1. Download the desktop app** from the [**Releases**](https://github.com/EarthLinkNetwork/context-drop/releases) page. The macOS build is signed with a Developer ID certificate and **notarized by Apple**, so it opens without a Gatekeeper warning. Unzip it, move **Context Drop.app** to `/Applications`, and open it (it lives in the menu bar). The desktop app ships the `context-drop` companion CLI — end users need no Node.js, npm, or Rust.
+
+> Current releases are **macOS (Apple Silicon / arm64)**. Intel-Mac (universal) and Windows builds are planned; building from source works on all three (see CONTRIBUTING).
 
 **2. Install the Claude Code plugin** with the bundled CLI:
 

@@ -1,10 +1,21 @@
-# Release workflow — SCAFFOLD ONLY.
+# Release workflow — signed + notarized macOS build on tag push.
 #
-# This builds the desktop bundles on macOS and Windows when a version tag is
-# pushed. It intentionally does NOT configure code-signing or notarization:
-# no production signing secrets are assumed. Unsigned artifacts are uploaded to
-# the GitHub Release as a starting point; wire up signing separately when
-# certificates are available (see tauri-apps/tauri-action docs).
+# Pushing a version tag (e.g. `v0.1.1`) builds the desktop app, signs it with the
+# Developer ID certificate, notarizes it with Apple, and attaches the bundle to a
+# GitHub Release.
+#
+# Required repository Secrets (Settings → Secrets and variables → Actions):
+#   APPLE_CERTIFICATE           base64 of the exported "Developer ID Application"
+#                               .p12 (Team 6XC66ZV9WK). Export from Keychain
+#                               Access, then: base64 -i cert.p12 | pbcopy
+#   APPLE_CERTIFICATE_PASSWORD  the password you set when exporting the .p12
+#   APPLE_SIGNING_IDENTITY      "Developer ID Application: EarthLink Network (6XC66ZV9WK)"
+#   APPLE_ID                    the Apple ID email on that team (uehara@eln.ne.jp)
+#   APPLE_PASSWORD              an app-specific password for that Apple ID
+#   APPLE_TEAM_ID               6XC66ZV9WK
+#
+# Without these secrets the build still runs but is UNSIGNED (Gatekeeper will warn
+# on first launch). GITHUB_TOKEN is provided automatically.
 name: Release
 
 on:
@@ -17,13 +28,9 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Bundle (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
+  release:
+    name: Build & release (macOS)
+    runs-on: macos-14 # Apple Silicon runner (arm64)
     steps:
       - uses: actions/checkout@v4
 
@@ -46,17 +53,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Builds the frontend (beforeBuildCommand) and bundles the app.
-      # No signing identity is provided; artifacts are unsigned.
-      - name: Build desktop bundle (unsigned)
-        run: |
-          pnpm add -D -w @tauri-apps/cli
-          pnpm --filter @context-drop/desktop exec tauri build
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      # Builds the frontend + bundles the app, then (if the Apple secrets are
+      # present) signs and notarizes it and attaches it to the GitHub Release.
+      - name: Build, sign, notarize, release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          name: context-drop-${{ matrix.os }}
-          path: |
-            apps/desktop/src-tauri/target/release/bundle/**
-          if-no-files-found: warn
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Context Drop ${{ github.ref_name }}"
+          releaseBody: "See CHANGELOG.md for what's in this release."
+          releaseDraft: false
+          prerelease: false
