@@ -1,0 +1,4 @@
+こんにちは、世界。
+これは Context Drop のテスト用 Unicode テキストです。
+絵文字も含みます: 🧩📋🖼️
+Tabs and	special chars: café, naïve, Straße, Ｆｕｌｌｗｉｄｔｈ.

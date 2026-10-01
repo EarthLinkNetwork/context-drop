@@ -1,0 +1,40 @@
+[package]
+name = "context-drop-integration-tests"
+description = "Cross-cutting routing, concurrency, and lifecycle integration tests for Context Drop."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+# Map the spec's tests/{routing,integration} layout onto real cargo test targets.
+[[test]]
+name = "routing"
+path = "routing/routing.rs"
+
+[[test]]
+name = "concurrency"
+path = "routing/concurrency.rs"
+
+[[test]]
+name = "lifecycle"
+path = "integration/lifecycle.rs"
+
+[[test]]
+name = "fixtures"
+path = "integration/fixtures.rs"
+
+[[test]]
+name = "plugin"
+path = "integration/plugin.rs"
+
+[dependencies]
+context-drop-core.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+context-drop-clipboard.workspace = true
+serde_json.workspace = true

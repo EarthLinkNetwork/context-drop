@@ -1,0 +1,14 @@
+{
+  "request": "GET /api/v1/widgets",
+  "status": 500,
+  "error": {
+    "code": "INTERNAL",
+    "message": "null pointer in WidgetService.load",
+    "stack": [
+      "WidgetService.load (widget_service.rs:42)",
+      "handler (routes.rs:118)"
+    ]
+  },
+  "latencyMs": 1287,
+  "items": []
+}

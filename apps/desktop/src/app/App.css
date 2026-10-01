@@ -1,0 +1,409 @@
+:root {
+  --bg: #1e1e22;
+  --panel: #2a2a30;
+  --text: #e8e8ea;
+  --muted: #a0a0a8;
+  --accent: #4ea1ff;
+  --danger: #ff6b6b;
+  --ok: #57d38c;
+  color-scheme: dark light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  /* Fill the window so the layout tracks resizing instead of staying a fixed
+     narrow column with dead space on the right. */
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 12px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.dot-on {
+  color: var(--ok);
+}
+.dot-off {
+  color: var(--muted);
+}
+.status-count {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #3a3a42;
+}
+/* Each tab's panel stacks its sections with the same gap the app column uses,
+   since the wrapper div (not `.app`) is now the flex parent of those sections. */
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tab-panel[hidden] {
+  display: none;
+}
+.tab {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab:hover {
+  color: var(--text);
+}
+.tab.is-active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.panel {
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.panel h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.panel h3 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.privacy-note {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #3a3a42;
+  color: var(--text);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn-start {
+  background: var(--accent);
+  color: #06121f;
+}
+.btn-stop {
+  background: var(--danger);
+  color: #200606;
+}
+.btn-small {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.item-count {
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.recent-items {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 0;
+}
+.item-thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #1c1c20;
+  flex: 0 0 auto;
+}
+.item-badge {
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #3a3a42;
+  color: var(--text);
+  font-size: 11px;
+}
+.item-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.item-preview {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.item-size {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+/* The clickable part of a row (opens the full-content viewer). */
+.recent-item-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.recent-item-open:hover {
+  background: #33333b;
+}
+.btn-trash {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+.btn-trash:hover {
+  opacity: 1;
+  background: rgba(255, 107, 107, 0.18);
+}
+.btn-trash:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Full-content viewer modal -------------------------------------------------*/
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.modal {
+  background: var(--panel);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid #3a3a42;
+}
+.modal-title {
+  font-size: 12px;
+  color: var(--muted);
+}
+.modal-body {
+  padding: 10px;
+  overflow: auto;
+}
+.modal-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.modal-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 4px;
+}
+
+.dispatch-project {
+  font-weight: 600;
+  margin: 0;
+}
+.dispatch-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 2px 0 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.field input[type="text"],
+.field input[type="number"] {
+  background: #1c1c20;
+  border: 1px solid #3a3a42;
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 13px;
+}
+.field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.warning {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+.error-banner {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.info-banner {
+  background: rgba(78, 161, 255, 0.15);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.empty {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.integrations {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.integrations td {
+  padding: 3px 0;
+  vertical-align: middle;
+}
+.config-path {
+  color: var(--muted);
+  word-break: break-all;
+}
+.config-status {
+  text-align: right;
+  white-space: nowrap;
+}
+.installed {
+  color: var(--ok);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.privacy-info {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.privacy-info summary {
+  cursor: pointer;
+}
+
+/* Drag & drop -------------------------------------------------------------- */
+
+.drop-hint {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* A full-window overlay shown while an OS drag hovers the window. It is purely
+   a visual cue: the OS/Tauri layer delivers the drop, so the overlay must not
+   intercept pointer events. */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(78, 161, 255, 0.14);
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+}
+.drop-overlay span {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg);
+  padding: 8px 14px;
+  border-radius: 8px;
+}

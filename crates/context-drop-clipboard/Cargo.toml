@@ -1,0 +1,35 @@
+[package]
+name = "context-drop-clipboard"
+description = "Platform clipboard capture abstraction for Context Drop (text, image, files)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "bmp", "gif", "webp"] }
+
+# Cross-platform text + image clipboard access.
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+arboard = "3"
+
+# macOS: NSPasteboard change-count + Finder file URLs (native).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSPasteboardItem"] }
+
+# Windows: CF_HDROP file lists + clipboard sequence number (native).
+[target.'cfg(target_os = "windows")'.dependencies]
+clipboard-win = "5"
+
+[dev-dependencies]
+tempfile.workspace = true
+# For the `#[ignore]`d live clipboard smoke test (sets a known value to read back).
+arboard = "3"

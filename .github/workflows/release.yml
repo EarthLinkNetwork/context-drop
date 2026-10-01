@@ -1,0 +1,62 @@
+# Release workflow — SCAFFOLD ONLY.
+#
+# This builds the desktop bundles on macOS and Windows when a version tag is
+# pushed. It intentionally does NOT configure code-signing or notarization:
+# no production signing secrets are assumed. Unsigned artifacts are uploaded to
+# the GitHub Release as a starting point; wire up signing separately when
+# certificates are available (see tauri-apps/tauri-action docs).
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Bundle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Builds the frontend (beforeBuildCommand) and bundles the app.
+      # No signing identity is provided; artifacts are unsigned.
+      - name: Build desktop bundle (unsigned)
+        run: |
+          pnpm add -D -w @tauri-apps/cli
+          pnpm --filter @context-drop/desktop exec tauri build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: context-drop-${{ matrix.os }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/**
+          if-no-files-found: warn

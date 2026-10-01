@@ -1,0 +1,6 @@
+# Context Drop targets stable Rust. Pinning the channel (not a specific version)
+# keeps CI reproducible without forcing a download for contributors on rustup,
+# and is simply ignored by non-rustup toolchains (e.g. a Homebrew `rustc`).
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

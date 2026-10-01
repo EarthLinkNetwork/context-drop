@@ -1,0 +1,16 @@
+{
+  "name": "context-drop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Context Drop — local clipboard-to-subagent context routing for Claude Code.",
+  "license": "MIT",
+  "packageManager": "pnpm@8.15.0",
+  "scripts": {
+    "dev": "pnpm --filter @context-drop/desktop dev",
+    "build": "pnpm --filter @context-drop/desktop build",
+    "lint": "pnpm --filter @context-drop/desktop lint",
+    "typecheck": "pnpm --filter @context-drop/desktop typecheck",
+    "test": "pnpm --filter @context-drop/desktop test",
+    "tauri": "pnpm --filter @context-drop/desktop tauri"
+  }
+}

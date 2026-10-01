@@ -1,0 +1,30 @@
+[package]
+name = "context-drop-cli"
+description = "Context Drop companion CLI: claim routing, status, undo, doctor, and Claude Code integration install."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "context-drop"
+path = "src/main.rs"
+
+[features]
+# Internal `__seed` subcommand for headless testing/scripting. NOT enabled in
+# release/shipped builds; enable with `--features dev-tools` for tests/E2E.
+dev-tools = []
+
+[dependencies]
+context-drop-core.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+context-drop-core.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,35 @@
+# Rust
+/target
+**/target
+Cargo.lock.orig
+
+# Node / frontend
+node_modules
+dist
+dist-ssr
+*.local
+.pnpm-store
+
+# Tauri build output
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen
+# Staged CLI sidecar (built by scripts/stage-sidecar.mjs)
+apps/desktop/src-tauri/binaries
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Test / coverage
+coverage
+*.log
+
+# Local Context Drop data (never commit captured content)
+ContextDrop/
+*.contextdrop
+
+# Local tooling state (not part of the project)
+.eln/

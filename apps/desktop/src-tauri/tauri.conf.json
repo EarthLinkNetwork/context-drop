@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Context Drop",
+  "version": "0.1.0",
+  "identifier": "com.contextdrop.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "node scripts/stage-sidecar.mjs && pnpm dev",
+    "beforeBuildCommand": "node scripts/stage-sidecar.mjs --release && pnpm build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Context Drop",
+        "width": 380,
+        "height": 660,
+        "minWidth": 340,
+        "minHeight": 480,
+        "resizable": true,
+        "visible": false,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": ["binaries/context-drop"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "resources": {
+      "../../../integrations/claude-code": "claude-code"
+    },
+    "category": "DeveloperTool",
+    "shortDescription": "Local clipboard-to-subagent context routing for Claude Code",
+    "longDescription": "Context Drop captures clipboard items (screenshots, logs, JSON, files) only while Capture is ON and routes them, per Claude Code session, to an isolated subagent — keeping raw context out of the main conversation."
+  },
+  "plugins": {}
+}

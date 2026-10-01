@@ -1,0 +1,35 @@
+# Standalone workspace: the desktop app depends on the core/clipboard crates via
+# path but is kept out of the root workspace so `cargo test --workspace` at the
+# repo root stays fast and free of the heavy WebView dependency graph.
+[workspace]
+
+[package]
+name = "context-drop-desktop"
+description = "Context Drop desktop app (Tauri 2 tray utility)."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+authors = ["Context Drop contributors"]
+repository = "https://github.com/context-drop/context-drop"
+
+[lib]
+name = "context_drop_desktop_lib"
+crate-type = ["lib"]
+
+[[bin]]
+name = "context-drop-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+context-drop-core = { path = "../../../crates/context-drop-core" }
+context-drop-clipboard = { path = "../../../crates/context-drop-clipboard" }
