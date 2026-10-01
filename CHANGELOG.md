@@ -5,9 +5,27 @@ All notable changes to Context Drop are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-10-01
 
 ### Added
+
+- **Step-by-step Claude Code Setup.** A dedicated setup section (separate from
+  Settings) walks you through enabling the plugin with copyable
+  `/plugin marketplace add EarthLinkNetwork/context-drop` and
+  `/plugin install context-drop@context-drop` commands, plus an optional/offline
+  path. A "finish setup" banner appears until the plugin is installed.
+- **Install-state detection.** The app reads Claude Code's own installed-plugins
+  record and shows a **✓ Plugin installed in Claude Code** badge once it's set up.
+
+### Changed
+
+- **Last Dispatch** moved back under Current Packet on the Capture tab, so a
+  consume/undo is visible next to the packet it affected.
+- This repository is now a public Claude Code marketplace
+  (`/plugin marketplace add EarthLinkNetwork/context-drop`).
+
+### Added
+
 
 - **Drag & drop capture.** Files can be dropped directly onto the Context Drop
   window to add them to the current packet — no need to copy them to the
