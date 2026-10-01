@@ -37,6 +37,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
       shortAliasInstalled: false,
     },
     integrations: [],
+    marketplaceGithub: "EarthLinkNetwork/context-drop",
     notice: null,
     ...overrides,
   };
@@ -102,13 +103,15 @@ describe("App", () => {
   it("splits Capture and Settings into tabs", async () => {
     mocks.getSnapshot.mockResolvedValue(snapshot({ capturing: false }));
     render(<App />);
-    // Capture tab is the default: capture control is visible, settings is not.
+    // Capture tab is the default: capture control + Last Dispatch are visible,
+    // the settings form is not.
     expect(await screen.findByRole("button", { name: "Start Capture" })).toBeInTheDocument();
+    expect(screen.getByText("Last Dispatch")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save Settings" })).not.toBeInTheDocument();
-    // Switch to Settings: settings + Last Dispatch appear, capture control hides.
+    // Switch to Settings: the setup + settings form appear, capture control hides.
     await userEvent.click(screen.getByRole("tab", { name: "Settings" }));
     expect(screen.getByRole("button", { name: "Save Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Last Dispatch")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code Setup")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start Capture" })).not.toBeInTheDocument();
   });
 

@@ -1,28 +1,22 @@
 import { useEffect, useState } from "react";
-import type { IntegrationStatus, Settings } from "../../lib/api";
+import type { Settings } from "../../lib/api";
 
 interface Props {
   settings: Settings;
   shortcutRegistered: boolean;
-  integrations: IntegrationStatus[];
   busy: boolean;
   onSave: (settings: Settings) => void;
-  onInstallIntegration: (configDir: string) => void;
-  onInstallShortAlias: () => void;
   onOpenDataFolder: () => void;
 }
 
 const MB = 1024 * 1024;
 
-/** Settings editor: shortcut, TTL, size limits, and Claude integration status. */
+/** Settings editor: shortcut, TTL, size limits (Claude setup lives in InstallationPanel). */
 export function SettingsPanel({
   settings,
   shortcutRegistered,
-  integrations,
   busy,
   onSave,
-  onInstallIntegration,
-  onInstallShortAlias,
   onOpenDataFolder,
 }: Props) {
   const [shortcut, setShortcut] = useState(settings.globalShortcut);
@@ -132,47 +126,7 @@ export function SettingsPanel({
         Save Settings
       </button>
 
-      <h3>Claude Code Integrations</h3>
-      <table className="integrations" aria-label="Claude Code integrations">
-        <tbody>
-          {integrations.length === 0 && (
-            <tr>
-              <td colSpan={2} className="empty">
-                No Claude config directories detected.
-              </td>
-            </tr>
-          )}
-          {integrations.map((it) => (
-            <tr key={it.configDir}>
-              <td className="config-path">{it.configDir}</td>
-              <td className="config-status">
-                {it.installed ? (
-                  <span className="installed">Installed</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-small"
-                    disabled={busy}
-                    onClick={() => onInstallIntegration(it.configDir)}
-                  >
-                    Install
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
       <div className="settings-actions">
-        <button
-          type="button"
-          className="btn btn-small"
-          disabled={busy || settings.shortAliasInstalled}
-          onClick={onInstallShortAlias}
-        >
-          {settings.shortAliasInstalled ? "/cd alias installed" : "Install short alias /cd"}
-        </button>
         <button type="button" className="btn btn-small" disabled={busy} onClick={onOpenDataFolder}>
           Open data folder
         </button>

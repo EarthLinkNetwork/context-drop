@@ -61,7 +61,7 @@ Then open a new session (or just use `/cd`, the auto-loaded short alias).
 <details>
 <summary>Alternative: install the plugin locally from the app</summary>
 
-Instead of the public marketplace, the desktop app can lay down a self-contained **local** marketplace: click **Settings → Claude Code Integrations → Install** (or run `context-drop install-claude`). It is idempotent and additive — it never overwrites unrelated settings. It installs into `CLAUDE_CONFIG_DIR` (comma/semicolon-separated) plus `~/.claude`; flags: `--config-dir <path>`, `--from <path>`, `--short-alias`, `--force`. It prints the local marketplace path to pass to `/plugin marketplace add`.
+Instead of the public marketplace, the desktop app can lay down a self-contained **local** marketplace: open **Settings → Claude Code Setup → Optional / offline install → Install locally** (or run `context-drop install-claude`). It is idempotent and additive — it never overwrites unrelated settings. It installs into `CLAUDE_CONFIG_DIR` (comma/semicolon-separated) plus `~/.claude`; flags: `--config-dir <path>`, `--from <path>`, `--short-alias`, `--force`. It prints the local marketplace path to pass to `/plugin marketplace add`.
 </details>
 
 ## 4. Basic use

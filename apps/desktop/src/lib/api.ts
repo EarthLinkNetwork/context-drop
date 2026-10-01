@@ -30,7 +30,12 @@ export interface LastDispatchInfo {
 
 export interface IntegrationStatus {
   configDir: string;
+  /** The app staged the local marketplace files under this config dir. */
   installed: boolean;
+  /** The plugin is registered in Claude Code here (user ran `/plugin install`). */
+  enabled: boolean;
+  /** Local marketplace dir (for the offline `/plugin marketplace add <path>`). */
+  marketplacePath: string;
 }
 
 export interface Settings {
@@ -52,6 +57,8 @@ export interface AppSnapshot {
   readyCount: number;
   settings: Settings;
   integrations: IntegrationStatus[];
+  /** The public GitHub marketplace slug for `/plugin marketplace add`. */
+  marketplaceGithub: string;
   /** A transient notice from the backend (e.g. an item rejected for size). */
   notice: string | null;
 }

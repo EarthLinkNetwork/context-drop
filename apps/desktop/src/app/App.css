@@ -51,6 +51,69 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.setup-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(78, 161, 255, 0.15);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.installation-panel .setup-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+}
+.installation-panel .setup-steps li {
+  color: var(--text);
+}
+.copy-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+.copy-row code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: #1c1c20;
+  border: 1px solid #3a3a42;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.copy-btn {
+  flex: 0 0 auto;
+}
+.optional-setup {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.optional-setup summary {
+  cursor: pointer;
+}
+.optional-setup .optional-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 2px 0;
+}
+
 .tabs {
   display: flex;
   gap: 4px;

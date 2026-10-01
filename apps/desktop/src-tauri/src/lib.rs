@@ -116,7 +116,12 @@ struct LastDispatchInfo {
 #[serde(rename_all = "camelCase")]
 struct IntegrationStatus {
     config_dir: String,
+    /// The app staged the local marketplace files under this config dir.
     installed: bool,
+    /// The plugin is registered in Claude Code here (user ran `/plugin install`).
+    enabled: bool,
+    /// Local marketplace dir (for the offline `/plugin marketplace add <path>`).
+    marketplace_path: String,
 }
 
 #[derive(Serialize)]
@@ -130,6 +135,8 @@ struct AppSnapshot {
     ready_count: i64,
     settings: Settings,
     integrations: Vec<IntegrationStatus>,
+    /// The public GitHub marketplace slug for `/plugin marketplace add`.
+    marketplace_github: String,
     notice: Option<String>,
 }
 
@@ -239,6 +246,10 @@ fn build_snapshot(app: &AppHandle) -> Result<AppSnapshot, String> {
         .into_iter()
         .map(|dir| IntegrationStatus {
             installed: integration::is_plugin_installed(&dir),
+            enabled: integration::is_plugin_enabled(&dir),
+            marketplace_path: integration::local_marketplace_dir(&dir)
+                .to_string_lossy()
+                .into_owned(),
             config_dir: dir.to_string_lossy().into_owned(),
         })
         .collect();
@@ -259,6 +270,7 @@ fn build_snapshot(app: &AppHandle) -> Result<AppSnapshot, String> {
         ready_count: report.ready_count,
         settings,
         integrations,
+        marketplace_github: integration::MARKETPLACE_GITHUB.to_string(),
         notice,
     })
 }

@@ -17,14 +17,8 @@ function renderPanel(overrides: Partial<Parameters<typeof SettingsPanel>[0]> = {
   const props = {
     settings,
     shortcutRegistered: true,
-    integrations: [
-      { configDir: "/Users/u/.claude", installed: true },
-      { configDir: "/Users/u/.claude-work", installed: false },
-    ],
     busy: false,
     onSave: vi.fn(),
-    onInstallIntegration: vi.fn(),
-    onInstallShortAlias: vi.fn(),
     onOpenDataFolder: vi.fn(),
     ...overrides,
   };
@@ -42,30 +36,22 @@ describe("SettingsPanel", () => {
   });
 
   it("resyncs the form when the saved settings change (e.g. backend clamp)", () => {
-    const base = { ...settings };
     const { rerender } = render(
       <SettingsPanel
-        settings={base}
+        settings={settings}
         shortcutRegistered
-        integrations={[]}
         busy={false}
         onSave={vi.fn()}
-        onInstallIntegration={vi.fn()}
-        onInstallShortAlias={vi.fn()}
         onOpenDataFolder={vi.fn()}
       />,
     );
     expect(screen.getByLabelText("Packet TTL (hours)")).toHaveValue(24);
-    // Backend saved a clamped value; the new snapshot flows in as props.
     rerender(
       <SettingsPanel
-        settings={{ ...base, packetTtlHours: 1 }}
+        settings={{ ...settings, packetTtlHours: 1 }}
         shortcutRegistered
-        integrations={[]}
         busy={false}
         onSave={vi.fn()}
-        onInstallIntegration={vi.fn()}
-        onInstallShortAlias={vi.fn()}
         onOpenDataFolder={vi.fn()}
       />,
     );
@@ -77,11 +63,8 @@ describe("SettingsPanel", () => {
       <SettingsPanel
         settings={settings}
         shortcutRegistered={true}
-        integrations={[]}
         busy={false}
         onSave={vi.fn()}
-        onInstallIntegration={vi.fn()}
-        onInstallShortAlias={vi.fn()}
         onOpenDataFolder={vi.fn()}
       />,
     );
@@ -90,11 +73,8 @@ describe("SettingsPanel", () => {
       <SettingsPanel
         settings={settings}
         shortcutRegistered={false}
-        integrations={[]}
         busy={false}
         onSave={vi.fn()}
-        onInstallIntegration={vi.fn()}
-        onInstallShortAlias={vi.fn()}
         onOpenDataFolder={vi.fn()}
       />,
     );
@@ -111,21 +91,5 @@ describe("SettingsPanel", () => {
     const saved = onSave.mock.calls[0][0] as Settings;
     expect(saved.maxItemBytes).toBe(30 * 1024 * 1024);
     expect(saved.packetTtlHours).toBe(48);
-  });
-
-  it("lists integration status and installs into a config dir", async () => {
-    const onInstallIntegration = vi.fn();
-    renderPanel({ onInstallIntegration });
-    expect(screen.getByText("/Users/u/.claude")).toBeInTheDocument();
-    expect(screen.getByText("Installed")).toBeInTheDocument();
-    // The not-installed row offers an Install button.
-    const installBtn = screen.getByRole("button", { name: "Install" });
-    await userEvent.click(installBtn);
-    expect(onInstallIntegration).toHaveBeenCalledWith("/Users/u/.claude-work");
-  });
-
-  it("reflects short-alias installed state", () => {
-    renderPanel({ settings: { ...settings, shortAliasInstalled: true } });
-    expect(screen.getByRole("button", { name: "/cd alias installed" })).toBeDisabled();
   });
 });

@@ -4,6 +4,7 @@ import { CapturePanel } from "../features/capture/CapturePanel";
 import { CurrentPacket } from "../features/packets/CurrentPacket";
 import { ItemModal } from "../features/packets/ItemModal";
 import { LastDispatch } from "../features/dispatch/LastDispatch";
+import { InstallationPanel } from "../features/settings/InstallationPanel";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import type { RecentItem } from "../lib/api";
 import { useAppState } from "../lib/useAppState";
@@ -72,6 +73,15 @@ export function App() {
         </p>
       )}
 
+      {!snap.integrations.some((i) => i.enabled) && (
+        <div className="setup-banner" data-testid="setup-banner">
+          <span>⚙️ Finish setup — install the Context Drop plugin in Claude Code.</span>
+          <button type="button" className="btn btn-small" onClick={() => setTab("settings")}>
+            Open Setup
+          </button>
+        </div>
+      )}
+
       <nav className="tabs" role="tablist" aria-label="Views">
         <button
           type="button"
@@ -113,15 +123,20 @@ export function App() {
             if (snap.currentDraft) void state.deleteItem(snap.currentDraft.packetId, itemId);
           }}
         />
+
+        <LastDispatch
+          dispatch={snap.lastDispatch}
+          busy={state.busy}
+          onUndo={() => void state.undoLast()}
+        />
       </div>
 
       <div className="tab-panel" hidden={tab !== "settings"}>
-        <SettingsPanel
-          settings={snap.settings}
-          shortcutRegistered={snap.shortcutRegistered}
+        <InstallationPanel
           integrations={snap.integrations}
+          marketplaceGithub={snap.marketplaceGithub}
+          shortAliasInstalled={snap.settings.shortAliasInstalled}
           busy={state.busy}
-          onSave={(s) => void state.saveSettings(s)}
           onInstallIntegration={(dir) => {
             // Clear any stale banner first, then show the outcome. On failure the
             // detailed error also appears in the error banner (see useAppState).
@@ -136,13 +151,14 @@ export function App() {
               .installShortAlias()
               .then((r) => setMessage(r ?? "Short alias install failed — see the error above."));
           }}
-          onOpenDataFolder={() => void state.openDataFolder()}
         />
 
-        <LastDispatch
-          dispatch={snap.lastDispatch}
+        <SettingsPanel
+          settings={snap.settings}
+          shortcutRegistered={snap.shortcutRegistered}
           busy={state.busy}
-          onUndo={() => void state.undoLast()}
+          onSave={(s) => void state.saveSettings(s)}
+          onOpenDataFolder={() => void state.openDataFolder()}
         />
       </div>
 

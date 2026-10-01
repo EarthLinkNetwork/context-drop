@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 /// Marketplace + plugin identifier used on disk.
 pub const MARKETPLACE_NAME: &str = "context-drop";
 pub const PLUGIN_NAME: &str = "context-drop";
+/// The public GitHub marketplace slug users add with `/plugin marketplace add`.
+pub const MARKETPLACE_GITHUB: &str = "EarthLinkNetwork/context-drop";
 
 #[derive(Debug)]
 pub struct PluginInstallReport {
@@ -194,7 +196,9 @@ pub fn detect_config_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// Whether the Context Drop plugin marketplace is present under a config root.
+/// Whether the Context Drop plugin marketplace FILES are staged under a config
+/// root (i.e. the desktop app's "Install" laid them down locally). This is not
+/// the same as the plugin being enabled in Claude Code — see `is_plugin_enabled`.
 pub fn is_plugin_installed(config_dir: &Path) -> bool {
     config_dir
         .join("plugins/marketplaces")
@@ -203,6 +207,35 @@ pub fn is_plugin_installed(config_dir: &Path) -> bool {
         .join(PLUGIN_NAME)
         .join(".claude-plugin/plugin.json")
         .is_file()
+}
+
+/// The local marketplace directory the app stages under a config root (the path
+/// you pass to `/plugin marketplace add` for the local, offline install path).
+pub fn local_marketplace_dir(config_dir: &Path) -> PathBuf {
+    config_dir
+        .join("plugins")
+        .join("marketplaces")
+        .join(MARKETPLACE_NAME)
+}
+
+/// Whether the plugin is actually REGISTERED in Claude Code (the user ran
+/// `/plugin install`), by inspecting `<config_dir>/plugins/installed_plugins.json`
+/// for a `context-drop@<marketplace>` entry. Returns false if the file is absent
+/// or unreadable.
+pub fn is_plugin_enabled(config_dir: &Path) -> bool {
+    let path = config_dir.join("plugins").join("installed_plugins.json");
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    let prefix = format!("{PLUGIN_NAME}@");
+    value
+        .get("plugins")
+        .and_then(|p| p.as_object())
+        .map(|m| m.keys().any(|k| k.starts_with(&prefix)))
+        .unwrap_or(false)
 }
 
 fn read_plugin_version(plugin_src: &Path) -> Option<String> {
