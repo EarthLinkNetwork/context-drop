@@ -47,20 +47,22 @@ The main agent must not read packet text, logs, images, JSON, or raw files. It w
 
 > Current releases are **macOS (Apple Silicon / arm64)**. Intel-Mac (universal) and Windows builds are planned; building from source works on all three (see CONTRIBUTING).
 
-**2. Install the Claude Code plugin** with the bundled CLI:
+**2. Launch the app once.** Opening Context Drop installs/refreshes the bundled `context-drop` CLI to its canonical location (no extra step needed).
 
-```sh
-context-drop install-claude
-```
-
-This lays down a self-contained local marketplace under `<config-dir>/plugins/marketplaces/context-drop/`. It is idempotent and additive: it never overwrites unrelated settings and never wholesale-overwrites `settings.json`. By default it installs into `CLAUDE_CONFIG_DIR` (which may be comma- or semicolon-separated) plus `~/.claude`; pass `--config-dir <path>` for a single root. Optional flags: `--from <path>`, `--short-alias`, `--force`.
-
-**3. Enable it inside a Claude Code session.** `install-claude` prints the marketplace path; then run:
+**3. Install the Claude Code plugin.** This repository **is** a Claude Code marketplace, so you can add it directly from GitHub — no local path to copy:
 
 ```
-/plugin marketplace add <printed marketplace path>
+/plugin marketplace add EarthLinkNetwork/context-drop
 /plugin install context-drop@context-drop
 ```
+
+Then open a new session (or just use `/cd`, the auto-loaded short alias).
+
+<details>
+<summary>Alternative: install the plugin locally from the app</summary>
+
+Instead of the public marketplace, the desktop app can lay down a self-contained **local** marketplace: click **Settings → Claude Code Integrations → Install** (or run `context-drop install-claude`). It is idempotent and additive — it never overwrites unrelated settings. It installs into `CLAUDE_CONFIG_DIR` (comma/semicolon-separated) plus `~/.claude`; flags: `--config-dir <path>`, `--from <path>`, `--short-alias`, `--force`. It prints the local marketplace path to pass to `/plugin marketplace add`.
+</details>
 
 ## 4. Basic use
 

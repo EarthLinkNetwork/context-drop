@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "context-drop",
+  "description": "Context Drop — local clipboard-to-subagent context routing for Claude Code.",
+  "owner": {
+    "name": "EarthLink Network",
+    "url": "https://github.com/EarthLinkNetwork/context-drop"
+  },
+  "plugins": [
+    {
+      "name": "context-drop",
+      "source": "./integrations/claude-code",
+      "description": "Route a captured Context Drop packet into this Claude Code session and process it in an isolated subagent.",
+      "version": "0.1.0",
+      "category": "productivity"
+    }
+  ]
+}

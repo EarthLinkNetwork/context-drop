@@ -121,7 +121,7 @@ pub fn install_plugin(config_dir: &Path, plugin_src: &Path) -> Result<PluginInst
         "description": "Context Drop — local clipboard-to-subagent context routing for Claude Code.",
         "owner": {
             "name": "Context Drop contributors",
-            "url": "https://github.com/context-drop/context-drop"
+            "url": "https://github.com/EarthLinkNetwork/context-drop"
         },
         "plugins": [
             {
