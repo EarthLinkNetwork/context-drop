@@ -360,7 +360,10 @@ fn delete_item_removes_one_and_adjusts_totals() {
         .unwrap();
     assert_eq!(after.item_count, 2);
     assert_eq!(after.total_bytes, before.total_bytes - victim.byte_size);
-    assert!(!victim_path.exists(), "the item's file is removed from disk");
+    assert!(
+        !victim_path.exists(),
+        "the item's file is removed from disk"
+    );
 
     // Deleting an already-gone item is a no-op (no error, count unchanged).
     context_drop_core::delete_item(&mut db, &h.storage, &draft, &victim.id).unwrap();
