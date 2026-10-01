@@ -55,8 +55,9 @@ export function InstallationPanel({
 
       {enabled ? (
         <p className="installed" data-testid="setup-done">
-          ✓ Plugin installed in Claude Code — you're ready. Run <code>/cd &lt;instruction&gt;</code> in
-          any session.
+          ✓ Plugin installed in Claude Code — you're ready. Run{" "}
+          <code>/context-drop:pull &lt;instruction&gt;</code> in any session (or <code>/cd</code>{" "}
+          once the optional short alias below is installed).
         </p>
       ) : (
         <ol className="setup-steps" data-testid="setup-steps">
@@ -68,7 +69,9 @@ export function InstallationPanel({
           </li>
           <li>
             <strong>Step 2 — Capture &amp; route.</strong> Press Start Capture (or drag &amp; drop
-            files), then run <code>/cd &lt;instruction&gt;</code> in the target tab.
+            files), then run <code>/context-drop:pull &lt;instruction&gt;</code> in the target tab
+            (or <code>/cd</code> once the optional short alias below is installed — the plugin
+            itself does not include <code>/cd</code>).
           </li>
         </ol>
       )}

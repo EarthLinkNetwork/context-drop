@@ -56,7 +56,9 @@ The main agent must not read packet text, logs, images, JSON, or raw files. It w
 /plugin install context-drop@context-drop
 ```
 
-Then open a new session (or just use `/cd`, the auto-loaded short alias).
+Then run `/reload-plugins` (or open a new session — sessions that were already open don't pick up a newly installed plugin) and use `/context-drop:pull <instruction>`.
+
+The shorter `/cd` is **not** part of the plugin: install it separately via **Settings → Claude Code Setup → Optional / offline install → Install /cd short alias** (or `context-drop install-claude --short-alias`).
 
 <details>
 <summary>Alternative: install the plugin locally from the app</summary>
