@@ -33,3 +33,10 @@ ContextDrop/
 
 # Local tooling state (not part of the project)
 .eln/
+
+# Local Apple notarization credential (never commit)
+.app_password
+
+# Release artifacts (built locally; distributed via GitHub Releases)
+/Context-Drop-*.zip
+/*.dmg
