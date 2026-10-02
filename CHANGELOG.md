@@ -5,10 +5,12 @@ All notable changes to Context Drop are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.4] - 2026-10-02
 
 ### Changed
 
+- The Claude Code plugin version is now `0.1.4` (was stuck at `0.1.0`), so
+  `/plugin update` / marketplace refresh picks up the new `/context-drop:pull`.
 - **Menu-bar / tray: icon only.** The `○ Context Drop` / `● Context Drop · N` title
   text is gone (it wasted menu-bar space and duplicated the icon). A new drop icon
   shows the state: outlined while idle (macOS template image; blue on
