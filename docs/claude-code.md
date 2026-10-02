@@ -116,6 +116,9 @@ files. Instead it:
    ("これを調べて"), and the desktop app's Current Packet clears immediately. Only the
    returned metadata enters the conversation. (If the loader did not run it, the skill
    tells the model to run the same script as its first tool call.)
+   On Windows the installer rewrites that line to run the bundled `claim.ps1` via
+   `powershell -NoProfile -ExecutionPolicy Bypass -File …` (same output as `claim.sh`),
+   so Git for Windows is not required; `allowed-tools` is pinned to that exact command.
 2. Infers a **task mode** from the user's argument (see [Task modes](#task-modes)).
 3. Delegates the manifest **PATH** (not its contents) to the isolated
    `context-investigator` subagent.
@@ -254,7 +257,7 @@ one place, and the session that runs `/context-drop:pull` is the one that claims
 - Installation **refuses to overwrite an existing `/cd`** that is not Context Drop's own
   alias unless you also pass `--force`. An older Context Drop `/cd` (recognized by its
   "Short alias for /context-drop:pull" description) is upgraded in place without `--force`.
-- `/cd` is a full copy of the pull skill (SKILL.md + `claim.sh`), not a pointer to it.
+- `/cd` is a full copy of the pull skill (SKILL.md + `claim.sh` + `claim.ps1`), not a pointer to it.
 
 ---
 

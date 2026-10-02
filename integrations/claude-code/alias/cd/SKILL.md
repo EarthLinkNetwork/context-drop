@@ -59,10 +59,14 @@ Handle non-success by exit code / `error`:
 
 **Fallback (only if the block above shows no `CLAIM_EXIT=` line**, e.g. the
 loader did not run it or reported a permission error): run the same script
-yourself as your **first** tool call, before anything else:
+yourself as your **first** tool call, before anything else (the script sits in
+this skill's base directory):
 
 ```bash
+# macOS / Linux / Git Bash
 sh "<this skill's base directory>/claim.sh" "$CLAUDE_CODE_SESSION_ID"
+# Windows (PowerShell, cmd, or Git Bash)
+powershell -NoProfile -ExecutionPolicy Bypass -File "<this skill's base directory>/claim.ps1" "<session id>"
 ```
 
 and read its output exactly as above.
