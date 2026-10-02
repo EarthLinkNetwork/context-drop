@@ -44,4 +44,3 @@ ContextDrop/
 # Signing material: exported Developer ID certificates must never be committed.
 *.p12
 *.p8
-.app_password
