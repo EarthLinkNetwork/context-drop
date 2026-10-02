@@ -5,6 +5,17 @@ All notable changes to Context Drop are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-10-02
+
+### Changed
+
+- Releases are now built, signed, and notarized by CI: pushing a `v*` tag
+  builds the app, notarizes and staples the DMG itself, and publishes
+  `Context-Drop-<tag>-macos-arm64.dmg` to the GitHub Release. A manual run of
+  the release workflow is a no-publish dry run (the notarized DMG is uploaded as
+  a workflow artifact), and the workflow fails fast if a signing secret is
+  missing. No app or plugin behavior changes.
+
 ## [0.1.4] - 2026-10-02
 
 ### Changed
