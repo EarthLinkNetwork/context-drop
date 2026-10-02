@@ -1,11 +1,18 @@
 ---
 name: pull
 description: Route a captured Context Drop packet into THIS Claude Code session and investigate it in an isolated subagent. Use when the user runs /context-drop:pull (or /cd) with an instruction like "investigate this", "原因を調べて直して", or "このUIをレビューして", after collecting clipboard items (screenshots, logs, JSON, files) in the Context Drop desktop app. The raw packet contents (text, logs, images, JSON, files) must NEVER be read into this main conversation — only packet metadata and the subagent's compact result may enter the main context.
+allowed-tools: Bash(sh "${CLAUDE_SKILL_DIR}/claim.sh" *)
 ---
 
 # Context Drop — Pull
 
 You are routing a **Context Drop packet** into the current Claude Code session and delegating the raw material to an **isolated subagent**. The user has already captured clipboard items (images, logs, JSON, files) into a packet.
+
+## The user's instruction is about the PACKET
+
+User instruction: $ARGUMENTS
+
+This instruction is **always about the captured packet** (its screenshots, logs, JSON, files). It is **never** a standalone task. Even when it reads like a self-contained question ("これを調べて", "investigate X"), the packet is the subject — do **not** start researching, searching the web, or reading the repository on your own before the packet has been handed to the subagent in Step 3. If the instruction is empty, treat it as "investigate this".
 
 ## Hard rule (do not violate)
 
@@ -21,81 +28,54 @@ Only these may enter the main context:
 
 Never `cat`, `Read`, open, or paste the manifest's item files or the manifest body into this conversation. You pass the manifest **path** to the subagent; the subagent reads the content in its own isolated context.
 
-## Step 0 — Resolve the `context-drop` binary (do this once)
+## Step 1 — The packet is ALREADY claimed (read the result below)
 
-Resolve the CLI once and use that exact path for **every** command below
-(`processing`, `claim`, `consume`). Resolution order — prefer the **canonical
-managed copy over `PATH`**, so a stale/older `context-drop` on `PATH` can never
-shadow the up-to-date one, and every Claude account/config dir resolves to the
-same global CLI:
+When this skill expanded, the loader already ran the claim for **this** session
+(session id + cwd + git project root) and marked the packet PROCESSING, so the
+desktop app's Current Packet is already cleared. Do **not** run `claim` again
+when the block below has a `CLAIM_EXIT=` line. Claim result (metadata only):
 
-1. `$CONTEXT_DROP_BIN` if set.
-2. The canonical install path (the desktop app / `install-claude` refreshes it
-   here; it is global per OS user and shared by all `CLAUDE_CONFIG_DIR`s). The
-   binary is `context-drop` (`context-drop.exe` on Windows). If
-   `$CONTEXT_DROP_DATA_DIR` is set, use `<that>/bin/context-drop[.exe]`; else per OS:
-   - macOS: `"$HOME/Library/Application Support/com.contextdrop.app/bin/context-drop"`
-   - Linux: `"${XDG_DATA_HOME:-$HOME/.local/share}/com.contextdrop.app/bin/context-drop"`
-   - Windows: `<APPDATA>\com.contextdrop.app\bin\context-drop.exe` — use your shell's
-     env syntax for APPDATA (`$APPDATA` in Git Bash, `$env:APPDATA` in PowerShell).
-3. Only if that canonical copy does not exist, fall back to `context-drop` on `PATH`.
-
-If none of these resolve, tell the user to install Context Drop (desktop app, then
-"Install Claude Code integration" — or run `context-drop install-claude`) and stop.
-Below, `context-drop` means the resolved binary.
-
-## Step 1 — Claim the packet for THIS session
-
-Run the companion CLI (the resolved binary from Step 0):
-
-```bash
-context-drop claim --json
+```
+!`sh "${CLAUDE_SKILL_DIR}/claim.sh" "${CLAUDE_SESSION_ID}"`
 ```
 
-This atomically binds the highest-priority packet (the current DRAFT if it has items, else the most recent READY) to **this** Claude Code session, using `CLAUDE_CODE_SESSION_ID` + cwd + git project root. Capture ends automatically. The user does **not** choose a project, account, session, directory, packet id, or filename.
+Read it as:
 
-Parse the JSON from stdout. On success it looks like:
-
-```json
-{ "ok": true, "packetId": "…", "claimId": "…", "manifestPath": "…", "itemCount": 7,
-  "sessionId": "…", "projectRoot": "…", "projectName": "…" }
-```
-
-Keep the `packetId` **and** `claimId` — you pass both to `consume` in Step 4 so a
-re-claim of the same packet is never consumed by mistake.
+- `CONTEXT_DROP_BIN=<path>` — the resolved CLI. Use this exact path for `consume` in Step 4.
+- `CLAIM_EXIT=<code>` followed by the claim JSON, e.g.
+  `{ "ok": true, "packetId": "…", "claimId": "…", "manifestPath": "…", "itemCount": 7, "projectRoot": "…", … }`.
+  Keep `packetId`, `claimId`, `manifestPath`, `projectRoot`.
 
 Handle non-success by exit code / `error`:
 
-- `NO_PACKET` (exit 3): tell the user, verbatim: **"No Context Drop packet is ready. Start Capture and copy the materials first."** Stop.
-- `MISSING_SESSION_ID` (exit 4): report that no Claude Code session id was available, so routing was refused (Context Drop never routes by project alone). Suggest running from inside a Claude Code session. Stop.
+- `CLAIM_EXIT=3` / `NO_PACKET`: tell the user, verbatim: **"No Context Drop packet is ready. Start Capture and copy the materials first."** Stop.
+- `CLAIM_EXIT=4` / `MISSING_SESSION_ID`: report that no Claude Code session id was available, so routing was refused (Context Drop never routes by project alone). Stop.
+- `CLAIM_EXIT=127` / `NOT_INSTALLED`: tell the user to install Context Drop (desktop app, then "Install Claude Code integration" — or run `context-drop install-claude`). Stop.
 - any other error: report the message and stop.
 
-Do not print raw stdout if it might contain content — but note the CLI is designed to emit metadata only.
+**Fallback (only if the block above shows no `CLAIM_EXIT=` line**, e.g. the
+loader did not run it or reported a permission error): run the same script
+yourself as your **first** tool call, before anything else:
 
-## Step 2 — Decide the task mode from the user's argument
+```bash
+sh "<this skill's base directory>/claim.sh" "$CLAUDE_CODE_SESSION_ID"
+```
 
-Infer the mode from the user's instruction (the text after the command):
+and read its output exactly as above.
 
-- **ANALYZE** — read-only investigation. Triggers: "原因だけ調べて", "調査してください", "まだ修正しないで", "investigate", "what's causing…". The subagent must NOT edit source code.
+## Step 2 — Decide the task mode from the user's instruction
+
+- **ANALYZE** — read-only investigation. Triggers: "原因だけ調べて", "調査してください", "調べて", "まだ修正しないで", "investigate", "what's causing…". The subagent must NOT edit source code.
 - **FIX** — investigate, then modify the repository and run tests. Triggers: "原因を調べて直して", "修正までして", "fix it", "直して", "必要ならテストも追加して".
 - **REVIEW** — read-only comparison/review unless the user explicitly authorizes edits. Triggers: "レビューして", "画像と実装を比較して", "仕様との差を確認して", "review this UI".
 
 When ambiguous, default to **ANALYZE** (the safest, read-only mode).
 
-## Step 3 — Mark the packet as PROCESSING
+## Step 3 — Delegate to the isolated subagent
 
-Before delegating, mark the packet PROCESSING so it is protected from TTL
-cleanup while the subagent investigates (pass the `claimId` from Step 1):
+Use the **Agent/Task** tool to launch the `context-investigator` agent (subagent_type `context-drop:context-investigator`, or `context-investigator` if that is how it is listed). Pass it a prompt containing:
 
-```bash
-context-drop processing <packetId> --claim-id <claimId>
-```
-
-## Step 4 — Delegate to the isolated subagent
-
-Use the **Task** tool to launch the `context-investigator` agent (subagent_type: `context-investigator`). Pass it a prompt containing:
-
-- the **manifest path** from Step 1 (e.g. `manifestPath`)
+- the **manifest path** from Step 1 (`manifestPath`)
 - the **task mode** (ANALYZE / FIX / REVIEW)
 - the user's **original instruction** (verbatim)
 - the **projectRoot** so it can read repository source if needed
@@ -104,11 +84,11 @@ Example prompt to the subagent:
 
 > Task mode: ANALYZE. Context Drop manifest: `<manifestPath>`. Project root: `<projectRoot>`.
 > User request: "<verbatim user instruction>".
-> Read the manifest and the packet items yourself. Investigate. Return a compact, evidence-based result only.
+> Read the manifest and the packet items yourself (including any screenshots). Investigate. Return a compact, evidence-based result only.
 
 Do **not** read the manifest or items yourself before or after delegating.
 
-## Step 5 — Relay the compact result and finish
+## Step 4 — Relay the compact result and finish
 
 Relay the subagent's compact result to the user (Status / Confidence / Findings / Evidence references / Changed files / Verification / Remaining unknowns). Do not expand it with raw quotes from the packet.
 
@@ -116,7 +96,7 @@ Then mark the packet consumed so it is not re-processed (pass the `claimId` from
 Step 1 so only this exact claim is consumed):
 
 ```bash
-context-drop consume <packetId> --claim-id <claimId>
+"<CONTEXT_DROP_BIN>" consume <packetId> --claim-id <claimId>
 ```
 
 If the user wants to undo the routing (within ~5 minutes), point them at `/context-drop:undo` (undo affects routing only, never code changes already made).

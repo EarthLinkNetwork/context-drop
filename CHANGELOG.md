@@ -5,6 +5,22 @@ All notable changes to Context Drop are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `/cd <instruction>` (and `/context-drop:pull <instruction>`) sometimes skipped the
+  packet entirely: the model treated the instruction as a standalone task, never
+  claimed the packet or looked at the screenshots, and the packet stayed in the
+  desktop app's Current Packet until a bare `/cd` was run. The claim now runs
+  deterministically when the skill expands (bundled `claim.sh` via the skill
+  loader's `!` injection, with `allowed-tools` pinned to that script's absolute path), and the skill states that the
+  instruction is always about the packet.
+- `/cd` is now a self-contained copy of the pull skill (a test keeps the two
+  identical) instead of a pointer to it, and installing the short alias upgrades
+  an older Context Drop `/cd` in place (a user's own `/cd` is still never
+  overwritten without `--force`).
+
 ## [0.1.3] - 2026-10-02
 
 ### Fixed

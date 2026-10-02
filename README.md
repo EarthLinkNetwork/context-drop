@@ -135,7 +135,7 @@ The plugin is self-contained and installed by `context-drop install-claude` (no 
 - **Multiple config dirs:** supported and required for users with many accounts. `CLAUDE_CONFIG_DIR` may be comma- or semicolon-separated; `install-claude` also targets `~/.claude` by default.
 - **One global store:** every plugin instance across every config root talks to the **same** global Context Drop packet store. Packet data is never duplicated per account. The Settings UI shows the config path and install status (e.g. `~/.claude Installed`, `~/.claude-work Installed`, `~/.claude-client2 Not installed`) — never Anthropic account identity.
 
-**`/context-drop:pull` behavior.** The main agent runs `context-drop claim --json`, uses only the returned metadata, infers a task mode from your argument, delegates the manifest **path** to the `context-investigator` subagent, relays the compact result, then runs `context-drop consume <packetId>`. Task modes:
+**`/context-drop:pull` behavior.** The skill loader runs `context-drop claim --json` (via the skill's bundled `claim.sh`) the moment the command expands — so the packet is always claimed first, whatever argument you pass — and the main agent uses only the returned metadata, infers a task mode from your argument, delegates the manifest **path** to the `context-investigator` subagent, relays the compact result, then runs `context-drop consume <packetId>`. Task modes:
 
 - **ANALYZE** — read-only investigation (default; e.g. "原因だけ調べて", "investigate").
 - **FIX** — investigate → modify repo → test → report (e.g. "原因を調べて直して").
