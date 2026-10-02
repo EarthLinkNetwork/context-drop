@@ -1,0 +1,2 @@
+# sh scripts run by the skill loader must stay LF on every OS (CRLF breaks sh).
+*.sh text eol=lf

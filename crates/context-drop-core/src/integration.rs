@@ -721,7 +721,8 @@ mod tests {
     fn shipped_cd_alias_matches_pull_skill() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
         let body = |p: &Path| {
-            let s = fs::read_to_string(p).unwrap();
+            // Normalize CRLF (Windows checkouts) before splitting off the frontmatter.
+            let s = fs::read_to_string(p).unwrap().replace("\r\n", "\n");
             let after_front = s.splitn(3, "---\n").nth(2).unwrap().to_string();
             after_front
                 .lines()
@@ -733,10 +734,13 @@ mod tests {
             body(&root.join("alias/cd/SKILL.md")),
             body(&root.join("skills/pull/SKILL.md"))
         );
+        let claim_alias = fs::read(root.join("alias/cd/claim.sh")).unwrap();
         assert_eq!(
-            fs::read(root.join("alias/cd/claim.sh")).unwrap(),
+            claim_alias,
             fs::read(root.join("skills/pull/claim.sh")).unwrap()
         );
+        // `sh` rejects CRLF scripts: .gitattributes must keep them LF everywhere.
+        assert!(!claim_alias.contains(&b'\r'), "claim.sh must be LF-only");
         assert!(body(&root.join("skills/pull/SKILL.md"))
             .contains("claim.sh\" \"${CLAUDE_SESSION_ID}\"`"));
     }
