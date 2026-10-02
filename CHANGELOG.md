@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text is gone (it wasted menu-bar space and duplicated the icon). A new drop icon
   shows the state: outlined while idle (macOS template image; blue on
   Windows/Linux so it stays visible on dark taskbars), filled green while
-  capturing. The live item count moved to the tooltip.
+  capturing. The live item count moved to the tooltip (macOS/Windows; Linux
+  trays support neither title nor tooltip, as before).
 
 ### Fixed
 
@@ -37,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/cd` is now self-contained instead of a pointer to the pull skill, and installing
   the short alias upgrades an older Context Drop `/cd` in place (a user's own `/cd`
   is still never overwritten without `--force`).
+  The desktop app also refreshes an already-installed Context Drop `/cd` at
+  startup, so existing users get these fixes without reinstalling.
 
 ## [0.1.3] - 2026-10-02
 

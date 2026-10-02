@@ -71,6 +71,14 @@ fn assert_claimed(stdout: &str, data_dir: &Path, packet_id: &str, session: &str)
     let json: serde_json::Value = serde_json::from_str(lines[2]).expect("claim JSON intact");
     assert_eq!(json["packetId"], packet_id);
     assert_eq!(json["sessionId"], session);
+    // Exact paths: a wrong-code-page decode keeps the JSON valid but mangles
+    // the non-ASCII data dir, so compare the strings, not just "parses".
+    let manifest = std::path::PathBuf::from(json["manifestPath"].as_str().unwrap());
+    assert!(manifest.starts_with(data_dir), "manifestPath: {manifest:?}");
+    assert!(manifest.is_file(), "manifestPath must exist: {manifest:?}");
+    let bin = std::path::PathBuf::from(lines[0].trim_start_matches("CONTEXT_DROP_BIN="));
+    assert!(bin.starts_with(data_dir.join("bin")), "bin: {bin:?}");
+    assert!(bin.is_file(), "resolved bin must exist: {bin:?}");
     assert!(!stdout.contains("quoted"), "packet content must not leak");
     assert_eq!(lines[3], "PROCESSING_EXIT=0", "{stdout}");
 

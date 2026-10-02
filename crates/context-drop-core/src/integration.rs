@@ -178,6 +178,18 @@ pub fn install_short_alias(
     })
 }
 
+/// Refresh an ALREADY-installed Context Drop `/cd` from `alias_src` (desktop app
+/// startup), so existing users get alias fixes without re-clicking Install.
+/// Never installs `/cd` where it is absent (it is opt-in) and never touches a
+/// user's own `/cd`. Returns whether it rewrote the alias.
+pub fn refresh_short_alias(config_dir: &Path, alias_src: &Path) -> Result<bool, String> {
+    let skill_path = config_dir.join("skills").join("cd").join("SKILL.md");
+    if !is_context_drop_alias(&skill_path) {
+        return Ok(false);
+    }
+    install_short_alias(config_dir, alias_src, false).map(|r| !r.skipped_existing)
+}
+
 /// The claim lines of the `/cd` SKILL.md. The repository file carries the
 /// POSIX form (`sh claim.sh`); on Windows the installer rewrites them to run
 /// `claim.ps1` through `powershell -File`, which means the same thing whether
@@ -783,6 +795,37 @@ mod tests {
         assert!(win.find("allowed-tools:").unwrap() < front_end);
         // Idempotent.
         assert_eq!(adapt_skill_for_os(&win, true), win);
+    }
+
+    // Tier A: startup refresh upgrades only Context Drop's own /cd — never
+    // installs one where absent, never touches a user's own /cd.
+    #[test]
+    fn refresh_short_alias_touches_only_our_installed_alias() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
+        let src = root.join("alias/cd");
+
+        let absent = tempfile::tempdir().unwrap();
+        assert!(!refresh_short_alias(absent.path(), &src).unwrap());
+        assert!(!absent.path().join("skills/cd").exists());
+
+        let own = tempfile::tempdir().unwrap();
+        let own_skill = own.path().join("skills/cd/SKILL.md");
+        fs::create_dir_all(own_skill.parent().unwrap()).unwrap();
+        fs::write(&own_skill, "my own cd").unwrap();
+        assert!(!refresh_short_alias(own.path(), &src).unwrap());
+        assert_eq!(fs::read_to_string(&own_skill).unwrap(), "my own cd");
+
+        let ours = tempfile::tempdir().unwrap();
+        let ours_skill = ours.path().join("skills/cd/SKILL.md");
+        fs::create_dir_all(ours_skill.parent().unwrap()).unwrap();
+        fs::write(
+            &ours_skill,
+            "description: Short alias for /context-drop:pull. old",
+        )
+        .unwrap();
+        assert!(refresh_short_alias(ours.path(), &src).unwrap());
+        assert!(fs::read_to_string(&ours_skill).unwrap().contains("claim"));
+        assert!(ours.path().join("skills/cd/claim.ps1").is_file());
     }
 
     // Tier A: installing the shipped /cd writes the claim line for THIS OS

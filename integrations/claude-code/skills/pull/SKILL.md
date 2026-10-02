@@ -95,7 +95,10 @@ Then mark the packet consumed so it is not re-processed (pass the `claimId` from
 Step 1 so only this exact claim is consumed):
 
 ```bash
+# macOS / Linux / Git Bash / cmd
 "<CONTEXT_DROP_BIN>" consume <packetId> --claim-id <claimId>
+# PowerShell (a quoted path needs the call operator &)
+& "<CONTEXT_DROP_BIN>" consume <packetId> --claim-id <claimId>
 ```
 
 If the user wants to undo the routing (within ~5 minutes), point them at `/context-drop:undo` (undo affects routing only, never code changes already made).

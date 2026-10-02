@@ -1257,6 +1257,16 @@ pub fn run() {
                 }
             }
 
+            // Refresh an already-installed Context Drop `/cd` alias in every
+            // Claude config dir, so fixes reach existing users (the settings
+            // button is disabled once /cd is installed). Best-effort; never
+            // installs /cd where absent, never touches a user's own /cd.
+            if let Ok(src) = resolve_plugin_src(&handle) {
+                for dir in integration::detect_config_dirs() {
+                    let _ = integration::refresh_short_alias(&dir, &src.join("alias").join("cd"));
+                }
+            }
+
             // TTL cleanup on startup.
             {
                 let state = handle.state::<AppState>();
