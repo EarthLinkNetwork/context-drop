@@ -150,8 +150,10 @@ pub fn install_plugin(config_dir: &Path, plugin_src: &Path) -> Result<PluginInst
     })
 }
 
-/// Install the optional `/cd` short-alias skill at the user level.
-/// Refuses to overwrite an existing `/cd` skill unless `force` is set.
+/// Install the optional `/cd` short-alias skill at the user level: every file
+/// in `alias_src` (SKILL.md plus its `claim.sh`). An existing `/cd` that is
+/// Context Drop's own alias (any version) is upgraded in place; a user's own
+/// `/cd` skill is never overwritten unless `force` is set.
 pub fn install_short_alias(
     config_dir: &Path,
     alias_src: &Path,
@@ -160,21 +162,27 @@ pub fn install_short_alias(
     let skill_dir = config_dir.join("skills").join("cd");
     let skill_path = skill_dir.join("SKILL.md");
     let existed = skill_path.exists();
-    if existed && !force {
+    if existed && !force && !is_context_drop_alias(&skill_path) {
         return Ok(AliasInstallReport {
             skill_path,
             overwritten: false,
             skipped_existing: true,
         });
     }
-    fs::create_dir_all(&skill_dir).map_err(io_err)?;
-    let src = alias_src.join("SKILL.md");
-    fs::copy(&src, &skill_path).map_err(io_err)?;
+    copy_dir_recursive(alias_src, &skill_dir)?;
     Ok(AliasInstallReport {
         skill_path,
         overwritten: existed,
         skipped_existing: false,
     })
+}
+
+/// Whether an installed `/cd` SKILL.md is Context Drop's own short alias (every
+/// released version names `/context-drop:pull` in its description).
+fn is_context_drop_alias(skill_path: &Path) -> bool {
+    fs::read_to_string(skill_path)
+        .map(|s| s.contains("Short alias for /context-drop:pull"))
+        .unwrap_or(false)
 }
 
 /// Candidate Claude config directories: `CLAUDE_CONFIG_DIR` (which may name
@@ -676,6 +684,65 @@ mod tests {
         assert!(fs::read_to_string(&r1.skill_path)
             .unwrap()
             .contains("alias"));
+    }
+
+    // Tier A: an older Context Drop /cd (SKILL.md only, no claim.sh) must be
+    // upgraded in place WITHOUT force — otherwise users keep the old alias whose
+    // model-driven claim could be skipped when /cd is given an instruction.
+    #[test]
+    fn short_alias_upgrades_own_older_alias_and_copies_claim_script() {
+        let src = tempfile::tempdir().unwrap();
+        fs::write(
+            src.path().join("SKILL.md"),
+            "---\nname: cd\ndescription: Short alias for /context-drop:pull. v2\n---\nnew",
+        )
+        .unwrap();
+        fs::write(src.path().join("claim.sh"), "#!/bin/sh\n").unwrap();
+        let cfg = tempfile::tempdir().unwrap();
+        let skill_dir = cfg.path().join("skills").join("cd");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: cd\ndescription: Short alias for /context-drop:pull. v1\n---\nold",
+        )
+        .unwrap();
+
+        let r = install_short_alias(cfg.path(), src.path(), false).unwrap();
+        assert!(!r.skipped_existing);
+        assert!(r.overwritten);
+        assert!(fs::read_to_string(&r.skill_path).unwrap().ends_with("new"));
+        assert!(skill_dir.join("claim.sh").is_file());
+    }
+
+    // Tier A: the shipped /cd alias must stay a faithful copy of the pull skill —
+    // same body (instructions) and byte-identical claim.sh — so the two entry
+    // points can never drift apart.
+    #[test]
+    fn shipped_cd_alias_matches_pull_skill() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
+        let body = |p: &Path| {
+            // Normalize CRLF (Windows checkouts) before splitting off the frontmatter.
+            let s = fs::read_to_string(p).unwrap().replace("\r\n", "\n");
+            let after_front = s.splitn(3, "---\n").nth(2).unwrap().to_string();
+            after_front
+                .lines()
+                .filter(|l| !l.starts_with("<!--"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(
+            body(&root.join("alias/cd/SKILL.md")),
+            body(&root.join("skills/pull/SKILL.md"))
+        );
+        let claim_alias = fs::read(root.join("alias/cd/claim.sh")).unwrap();
+        assert_eq!(
+            claim_alias,
+            fs::read(root.join("skills/pull/claim.sh")).unwrap()
+        );
+        // `sh` rejects CRLF scripts: .gitattributes must keep them LF everywhere.
+        assert!(!claim_alias.contains(&b'\r'), "claim.sh must be LF-only");
+        assert!(body(&root.join("skills/pull/SKILL.md"))
+            .contains("claim.sh\" \"${CLAUDE_SESSION_ID}\"`"));
     }
 
     #[test]

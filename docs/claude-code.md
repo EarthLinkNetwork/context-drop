@@ -108,7 +108,14 @@ processing to the isolated subagent. This is the primary command.
 Behavior — the main agent **MUST NOT** read the packet's text, logs, images, JSON, or raw
 files. Instead it:
 
-1. Runs `context-drop claim --json` and uses **only** the returned metadata.
+1. Claims the packet **at skill expansion time**: the skill's `` !`sh claim.sh …` ``
+   line is executed by the Claude Code skill loader the moment `/context-drop:pull`
+   (or `/cd`) expands — before the model reads the instruction — running
+   `context-drop claim --json --session-id <this session>` and `processing`. The model
+   therefore cannot skip the claim even when the argument looks like a standalone task
+   ("これを調べて"), and the desktop app's Current Packet clears immediately. Only the
+   returned metadata enters the conversation. (If the loader did not run it, the skill
+   tells the model to run the same script as its first tool call.)
 2. Infers a **task mode** from the user's argument (see [Task modes](#task-modes)).
 3. Delegates the manifest **PATH** (not its contents) to the isolated
    `context-investigator` subagent.
@@ -244,7 +251,10 @@ one place, and the session that runs `/context-drop:pull` is the one that claims
 `/cd` is an **opt-in**, user-level short alias for the plugin's skills.
 
 - Install it by adding `--short-alias` to `context-drop install-claude`.
-- Installation **refuses to overwrite an existing `/cd`** unless you also pass `--force`.
+- Installation **refuses to overwrite an existing `/cd`** that is not Context Drop's own
+  alias unless you also pass `--force`. An older Context Drop `/cd` (recognized by its
+  "Short alias for /context-drop:pull" description) is upgraded in place without `--force`.
+- `/cd` is a full copy of the pull skill (SKILL.md + `claim.sh`), not a pointer to it.
 
 ---
 
