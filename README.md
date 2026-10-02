@@ -68,7 +68,7 @@ Instead of the public marketplace, the desktop app can lay down a self-contained
 
 ## 4. Basic use
 
-1. **Start Capture** with the global shortcut (default `CommandOrControl+Shift+9`, configurable). The menu-bar drop icon turns solid green (hover it for the live item count).
+1. **Start Capture** with the global shortcut (default `CommandOrControl+Shift+9`, configurable). The menu-bar drop icon turns solid green (hover it for the live item count on macOS/Windows; on Linux the count is shown in the app window).
 2. **Add your material.** Either way, each item is appended to the current packet and the item list in the window grows as you go:
    - **Copy it** — multiple images, text fragments, and Finder/Explorer files. Each copy while Capture is ON is appended.
    - **Or drag & drop files** onto the Context Drop window — no need to copy, and it works even when Capture is OFF (a drop is itself an explicit "capture this").
