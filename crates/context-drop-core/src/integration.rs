@@ -114,8 +114,6 @@ pub fn install_plugin(config_dir: &Path, plugin_src: &Path) -> Result<PluginInst
     if !same_src {
         copy_tree_atomic(plugin_src, &dest_plugin)?;
     }
-    // Also when the copy was skipped: an existing POSIX copy must still be adapted.
-    adapt_skill_file_for_os(&dest_plugin.join("skills/pull/SKILL.md"), cfg!(windows))?;
 
     // Write the marketplace manifest.
     let version = read_plugin_version(plugin_src).unwrap_or_else(|| "0.1.0".to_string());
@@ -180,7 +178,7 @@ pub fn install_short_alias(
     })
 }
 
-/// The claim lines of the pull / `/cd` SKILL.md. The repository files carry the
+/// The claim lines of the `/cd` SKILL.md. The repository file carries the
 /// POSIX form (`sh claim.sh`); on Windows the installer rewrites them to run
 /// `claim.ps1` through `powershell -File`, which means the same thing whether
 /// Claude Code runs the `!` injection in Git Bash, PowerShell, or cmd.
@@ -189,7 +187,9 @@ const POSIX_INJECTION: &str = r#"!`sh "${CLAUDE_SKILL_DIR}/claim.sh" "${CLAUDE_S
 const WINDOWS_CLAIM_CMD: &str =
     r#"powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/claim.ps1""#;
 
-/// Rewrite a pull / `/cd` SKILL.md for the target OS. A no-op for POSIX, and
+/// Rewrite the `/cd` SKILL.md for the target OS. (The plugin's pull skill has
+/// no OS-specific lines: a GitHub-marketplace install never passes through this
+/// installer, so pull has the model run the claim script itself.) A no-op for POSIX, and
 /// idempotent (an already-adapted file has no POSIX lines left to replace).
 pub fn adapt_skill_for_os(content: &str, windows: bool) -> String {
     if !windows {
@@ -758,9 +758,9 @@ mod tests {
     // command; POSIX content is left untouched. Runs on every OS against the
     // shipped SKILL.md so a wording change that breaks the rewrite is caught.
     #[test]
-    fn shipped_pull_skill_adapts_for_windows() {
+    fn shipped_cd_alias_adapts_for_windows() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
-        let shipped = fs::read_to_string(root.join("skills/pull/SKILL.md")).unwrap();
+        let shipped = fs::read_to_string(root.join("alias/cd/SKILL.md")).unwrap();
 
         assert_eq!(adapt_skill_for_os(&shipped, false), shipped);
 
@@ -805,39 +805,44 @@ mod tests {
         }
     }
 
-    // Tier A: the shipped /cd alias must stay a faithful copy of the pull skill —
-    // same body (instructions) and byte-identical claim.sh — so the two entry
-    // points can never drift apart.
+    // Tier A: the two entry points share the claim scripts byte-for-byte; /cd
+    // claims at expansion (installer-adapted per OS), while the plugin's pull
+    // (installable straight from GitHub, never adapted) must NOT inject a
+    // POSIX-only command — that would stop the skill loading on Windows without
+    // Git Bash — and instead makes the claim the model's first tool call.
     #[test]
-    fn shipped_cd_alias_matches_pull_skill() {
+    fn shipped_skills_claim_safely_on_every_os() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
-        let body = |p: &Path| {
-            // Normalize CRLF (Windows checkouts) before splitting off the frontmatter.
-            let s = fs::read_to_string(p).unwrap().replace("\r\n", "\n");
-            let after_front = s.splitn(3, "---\n").nth(2).unwrap().to_string();
-            after_front
-                .lines()
-                .filter(|l| !l.starts_with("<!--"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        assert_eq!(
-            body(&root.join("alias/cd/SKILL.md")),
-            body(&root.join("skills/pull/SKILL.md"))
-        );
-        let claim_alias = fs::read(root.join("alias/cd/claim.sh")).unwrap();
-        assert_eq!(
-            claim_alias,
-            fs::read(root.join("skills/pull/claim.sh")).unwrap()
-        );
+        let read = |p: &str| fs::read_to_string(root.join(p)).unwrap();
+        for script in ["claim.sh", "claim.ps1"] {
+            assert_eq!(
+                fs::read(root.join("alias/cd").join(script)).unwrap(),
+                fs::read(root.join("skills/pull").join(script)).unwrap(),
+                "{script} copies differ"
+            );
+        }
         // `sh` rejects CRLF scripts: .gitattributes must keep them LF everywhere.
-        assert!(!claim_alias.contains(&b'\r'), "claim.sh must be LF-only");
-        assert_eq!(
-            fs::read(root.join("alias/cd/claim.ps1")).unwrap(),
-            fs::read(root.join("skills/pull/claim.ps1")).unwrap()
+        assert!(
+            !read("skills/pull/claim.sh").contains('\r'),
+            "claim.sh must be LF-only"
         );
-        assert!(body(&root.join("skills/pull/SKILL.md"))
-            .contains("claim.sh\" \"${CLAUDE_SESSION_ID}\"`"));
+
+        let cd = read("alias/cd/SKILL.md");
+        assert_eq!(cd.matches(POSIX_INJECTION).count(), 1);
+        assert!(cd.contains(POSIX_ALLOWED_TOOLS));
+
+        let pull = read("skills/pull/SKILL.md");
+        assert!(!pull.contains("!`"), "pull must not use loader injection");
+        assert!(pull.contains("first tool call is always the claim"));
+        assert!(pull.contains(r#"sh "${CLAUDE_SKILL_DIR}/claim.sh" "${CLAUDE_SESSION_ID}""#));
+        assert!(pull.contains(r#"-File "${CLAUDE_SKILL_DIR}/claim.ps1" "${CLAUDE_SESSION_ID}""#));
+        // Shared rules stay in both.
+        for s in [&cd, &pull] {
+            assert!(s.contains("MUST NOT read"));
+            assert!(s.contains("always about the captured packet"));
+            assert!(s.contains("PROCESSING_EXIT="));
+            assert!(s.contains("consume <packetId> --claim-id <claimId>"));
+        }
     }
 
     #[test]

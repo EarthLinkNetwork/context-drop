@@ -55,8 +55,8 @@ your materials, there is no `DRAFT` to claim and no `READY` packet to route.
 **Fix.**
 
 1. Start Capture from the tray/menu-bar popover, or press the global shortcut
-   (default `CommandOrControl+Shift+9`). The tray title changes from
-   `○ Context Drop` to `● Context Drop · <item count>` while capturing.
+   (default `CommandOrControl+Shift+9`). The menu-bar icon changes from
+   the outlined drop icon to a filled green drop while capturing.
 2. Copy your materials (screenshots, logs, JSON, files, text, images). Each
    copy is appended to the current packet.
 3. Check what the store currently holds:

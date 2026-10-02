@@ -1,7 +1,10 @@
 ---
 name: pull
 description: Route a captured Context Drop packet into THIS Claude Code session and investigate it in an isolated subagent. Use when the user runs /context-drop:pull (or /cd) with an instruction like "investigate this", "原因を調べて直して", or "このUIをレビューして", after collecting clipboard items (screenshots, logs, JSON, files) in the Context Drop desktop app. The raw packet contents (text, logs, images, JSON, files) must NEVER be read into this main conversation — only packet metadata and the subagent's compact result may enter the main context.
-allowed-tools: Bash(sh "${CLAUDE_SKILL_DIR}/claim.sh" *)
+allowed-tools:
+  - Bash(sh "${CLAUDE_SKILL_DIR}/claim.sh" *)
+  - Bash(powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/claim.ps1" *)
+  - PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/claim.ps1" *)
 ---
 
 # Context Drop — Pull
@@ -12,7 +15,7 @@ You are routing a **Context Drop packet** into the current Claude Code session a
 
 User instruction: $ARGUMENTS
 
-This instruction is **always about the captured packet** (its screenshots, logs, JSON, files). It is **never** a standalone task. Even when it reads like a self-contained question ("これを調べて", "investigate X"), the packet is the subject — do **not** start researching, searching the web, or reading the repository on your own before the packet has been handed to the subagent in Step 3. If the instruction is empty, treat it as "investigate this".
+This instruction is **always about the captured packet** (its screenshots, logs, JSON, files). It is **never** a standalone task. Even when it reads like a self-contained question ("これを調べて", "investigate X"), the packet is the subject — do **not** start researching, searching the web, or reading the repository on your own before the packet has been handed to the subagent in Step 3. If the instruction is empty, treat it as "investigate this". Your **first tool call is always the claim in Step 1**.
 
 ## Hard rule (do not violate)
 
@@ -28,18 +31,21 @@ Only these may enter the main context:
 
 Never `cat`, `Read`, open, or paste the manifest's item files or the manifest body into this conversation. You pass the manifest **path** to the subagent; the subagent reads the content in its own isolated context.
 
-## Step 1 — The packet is ALREADY claimed (read the result below)
+## Step 1 — Claim the packet FIRST (your very first tool call)
 
-When this skill expanded, the loader already ran the claim for **this** session
-(session id + cwd + git project root) and marked the packet PROCESSING, so the
-desktop app's Current Packet is already cleared. Do **not** run `claim` again
-when the block below has a `CLAIM_EXIT=` line. Claim result (metadata only):
+Before anything else — before reading code, searching, or thinking about the
+instruction — run the bundled claim script for **this** session. It binds the
+packet to this session (session id + cwd + git project root), marks it
+PROCESSING, and clears the desktop app's Current Packet. Run exactly one of:
 
+```bash
+# macOS / Linux / Git Bash
+sh "${CLAUDE_SKILL_DIR}/claim.sh" "${CLAUDE_SESSION_ID}"
+# Windows (PowerShell, cmd, or Git Bash)
+powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/claim.ps1" "${CLAUDE_SESSION_ID}"
 ```
-!`sh "${CLAUDE_SKILL_DIR}/claim.sh" "${CLAUDE_SESSION_ID}"`
-```
 
-Read it as:
+Its output is metadata only. Read it as:
 
 - `CONTEXT_DROP_BIN=<path>` — the resolved CLI. Use this exact path for `consume` in Step 4.
 - `CLAIM_EXIT=<code>` followed by the claim JSON, e.g.
@@ -55,20 +61,6 @@ Handle non-success by exit code / `error`:
 - `CLAIM_EXIT=0` but `PROCESSING_EXIT=` is nonzero: the packet is claimed but not
   protected from TTL cleanup. Report that marking it PROCESSING failed, do **not**
   delegate, and tell the user to run `/context-drop:undo` and retry. Stop.
-
-**Fallback (only if the block above shows no `CLAIM_EXIT=` line**, e.g. the
-loader did not run it or reported a permission error): run the same script
-yourself as your **first** tool call, before anything else (the script sits in
-this skill's base directory):
-
-```bash
-# macOS / Linux / Git Bash
-sh "<this skill's base directory>/claim.sh" "$CLAUDE_CODE_SESSION_ID"
-# Windows (PowerShell, cmd, or Git Bash)
-powershell -NoProfile -ExecutionPolicy Bypass -File "<this skill's base directory>/claim.ps1" "<session id>"
-```
-
-and read its output exactly as above.
 
 ## Step 2 — Decide the task mode from the user's instruction
 

@@ -7,28 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Menu-bar / tray: icon only.** The `○ Context Drop` / `● Context Drop · N` title
+  text is gone (it wasted menu-bar space and duplicated the icon). A new drop icon
+  shows the state: outlined while idle (macOS template image; blue on
+  Windows/Linux so it stays visible on dark taskbars), filled green while
+  capturing. The live item count moved to the tooltip.
+
 ### Fixed
 
-- **Windows:** `/cd` and `/context-drop:pull` no longer depend on `sh`. The skills
-  ship `claim.ps1` next to `claim.sh`, and on Windows the installer (desktop app
-  or `context-drop install-claude`) rewrites the skill's claim line to
-  `powershell -NoProfile -ExecutionPolicy Bypass -File "<skill dir>/claim.ps1"`,
-  which works whether Claude Code runs it in Git Bash, PowerShell, or cmd.
-  `allowed-tools` grants exactly that command (as both `Bash(...)` and
-  `PowerShell(...)`). Both scripts are exercised in CI (Windows PowerShell on
-  Windows; `sh` and `pwsh` elsewhere).
-
-- `/cd <instruction>` (and `/context-drop:pull <instruction>`) sometimes skipped the
-  packet entirely: the model treated the instruction as a standalone task, never
-  claimed the packet or looked at the screenshots, and the packet stayed in the
-  desktop app's Current Packet until a bare `/cd` was run. The claim now runs
-  deterministically when the skill expands (bundled `claim.sh` via the skill
-  loader's `!` injection, with `allowed-tools` pinned to that script's absolute path), and the skill states that the
-  instruction is always about the packet.
-- `/cd` is now a self-contained copy of the pull skill (a test keeps the two
-  identical) instead of a pointer to it, and installing the short alias upgrades
-  an older Context Drop `/cd` in place (a user's own `/cd` is still never
-  overwritten without `--force`).
+- `/cd <instruction>` sometimes skipped the packet entirely: the model treated the
+  instruction as a standalone task, never claimed the packet or looked at the
+  screenshots, and the packet stayed in the desktop app's Current Packet until a
+  bare `/cd` was run. `/cd` now claims deterministically when it expands (bundled
+  `claim.sh` via the skill loader's `!` injection, `allowed-tools` pinned to that
+  script's absolute path), and states that the instruction is always about the packet.
+- **Windows:** the claim no longer needs `sh`/Git Bash. The skills ship `claim.ps1`
+  next to `claim.sh`; on Windows the installer (desktop app or `context-drop
+  install-claude`) writes `/cd`'s claim line as `powershell -NoProfile
+  -ExecutionPolicy Bypass -File "<skill dir>/claim.ps1"` (valid from Git Bash,
+  PowerShell, or cmd) and grants exactly that command. `claim.ps1` decodes the CLI
+  output as UTF-8 (non-ASCII paths on CP932 consoles). Both scripts run in CI.
+- `/context-drop:pull` (installable straight from GitHub, so never OS-adapted) does
+  not use loader injection — a POSIX-only injected command would stop the skill
+  loading on Windows without Git Bash. It makes running `claim.sh`/`claim.ps1` the
+  model's first tool call instead, with the same "instruction is about the packet"
+  rule.
+- `/cd` is now self-contained instead of a pointer to the pull skill, and installing
+  the short alias upgrades an older Context Drop `/cd` in place (a user's own `/cd`
+  is still never overwritten without `--force`).
 
 ## [0.1.3] - 2026-10-02
 

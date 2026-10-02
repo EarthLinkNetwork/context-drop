@@ -108,17 +108,18 @@ processing to the isolated subagent. This is the primary command.
 Behavior — the main agent **MUST NOT** read the packet's text, logs, images, JSON, or raw
 files. Instead it:
 
-1. Claims the packet **at skill expansion time**: the skill's `` !`sh claim.sh …` ``
-   line is executed by the Claude Code skill loader the moment `/context-drop:pull`
-   (or `/cd`) expands — before the model reads the instruction — running
-   `context-drop claim --json --session-id <this session>` and `processing`. The model
-   therefore cannot skip the claim even when the argument looks like a standalone task
-   ("これを調べて"), and the desktop app's Current Packet clears immediately. Only the
-   returned metadata enters the conversation. (If the loader did not run it, the skill
-   tells the model to run the same script as its first tool call.)
-   On Windows the installer rewrites that line to run the bundled `claim.ps1` via
-   `powershell -NoProfile -ExecutionPolicy Bypass -File …` (same output as `claim.sh`),
-   so Git for Windows is not required; `allowed-tools` is pinned to that exact command.
+1. Claims the packet first, via the skill's bundled `claim.sh` (macOS/Linux) or
+   `claim.ps1` (Windows: `powershell -NoProfile -ExecutionPolicy Bypass -File …`), which
+   run `context-drop claim --json --session-id <this session>` and `processing` and print
+   metadata only. This clears the desktop app's Current Packet.
+   - **`/cd`** runs it **at skill expansion time** through the Claude Code skill loader
+     (`` !`…` `` injection), before the model reads the instruction, so the claim can
+     never be skipped even when the argument looks like a standalone task ("これを調べて").
+     The installer writes the claim line for the installing OS (`claim.ps1` on Windows,
+     so Git for Windows is not required) and pins `allowed-tools` to that exact command.
+   - **`/context-drop:pull`** can be installed straight from the GitHub marketplace,
+     which bypasses the installer, so it carries no OS-specific line: the skill makes
+     running the script the model's **first tool call** (both commands are listed).
 2. Infers a **task mode** from the user's argument (see [Task modes](#task-modes)).
 3. Delegates the manifest **PATH** (not its contents) to the isolated
    `context-investigator` subagent.
@@ -257,7 +258,7 @@ one place, and the session that runs `/context-drop:pull` is the one that claims
 - Installation **refuses to overwrite an existing `/cd`** that is not Context Drop's own
   alias unless you also pass `--force`. An older Context Drop `/cd` (recognized by its
   "Short alias for /context-drop:pull" description) is upgraded in place without `--force`.
-- `/cd` is a full copy of the pull skill (SKILL.md + `claim.sh` + `claim.ps1`), not a pointer to it.
+- `/cd` is self-contained (SKILL.md + `claim.sh` + `claim.ps1`), not a pointer to the pull skill; unlike pull it claims at skill expansion.
 
 ---
 
