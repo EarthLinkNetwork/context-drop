@@ -1257,6 +1257,15 @@ pub fn run() {
                 }
             }
 
+            // Also refresh the staged plugin copy under the data dir: the
+            // managed CLI (in <data-dir>/bin, outside the app bundle) falls back
+            // to it, so without this `context-drop install-claude` would keep
+            // handing out the plugin from the version that was first installed.
+            if let Ok(src) = resolve_plugin_src(&handle) {
+                let state = handle.state::<AppState>();
+                let _ = integration::stage_plugin(state.storage.root(), &src);
+            }
+
             // Refresh an already-installed Context Drop `/cd` alias in every
             // Claude config dir, so fixes reach existing users (the settings
             // button is disabled once /cd is installed). Best-effort; never
