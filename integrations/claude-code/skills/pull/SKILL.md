@@ -52,6 +52,9 @@ Handle non-success by exit code / `error`:
 - `CLAIM_EXIT=4` / `MISSING_SESSION_ID`: report that no Claude Code session id was available, so routing was refused (Context Drop never routes by project alone). Stop.
 - `CLAIM_EXIT=127` / `NOT_INSTALLED`: tell the user to install Context Drop (desktop app, then "Install Claude Code integration" — or run `context-drop install-claude`). Stop.
 - any other error: report the message and stop.
+- `CLAIM_EXIT=0` but `PROCESSING_EXIT=` is nonzero: the packet is claimed but not
+  protected from TTL cleanup. Report that marking it PROCESSING failed, do **not**
+  delegate, and tell the user to run `/context-drop:undo` and retry. Stop.
 
 **Fallback (only if the block above shows no `CLAIM_EXIT=` line**, e.g. the
 loader did not run it or reported a permission error): run the same script
