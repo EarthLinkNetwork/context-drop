@@ -59,10 +59,14 @@ Handle non-success by exit code / `error`:
 
 **Fallback (only if the block above shows no `CLAIM_EXIT=` line**, e.g. the
 loader did not run it or reported a permission error): run the same script
-yourself as your **first** tool call, before anything else:
+yourself as your **first** tool call, before anything else (the script sits in
+this skill's base directory):
 
 ```bash
+# macOS / Linux / Git Bash
 sh "<this skill's base directory>/claim.sh" "$CLAUDE_CODE_SESSION_ID"
+# Windows (PowerShell, cmd, or Git Bash)
+powershell -NoProfile -ExecutionPolicy Bypass -File "<this skill's base directory>/claim.ps1" "<session id>"
 ```
 
 and read its output exactly as above.
@@ -100,7 +104,10 @@ Then mark the packet consumed so it is not re-processed (pass the `claimId` from
 Step 1 so only this exact claim is consumed):
 
 ```bash
+# macOS / Linux / Git Bash / cmd
 "<CONTEXT_DROP_BIN>" consume <packetId> --claim-id <claimId>
+# PowerShell (a quoted path needs the call operator &)
+& "<CONTEXT_DROP_BIN>" consume <packetId> --claim-id <claimId>
 ```
 
 If the user wants to undo the routing (within ~5 minutes), point them at `/context-drop:undo` (undo affects routing only, never code changes already made).

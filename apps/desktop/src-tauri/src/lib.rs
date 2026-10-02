@@ -160,25 +160,35 @@ fn clear_notice(app: &AppHandle) {
     *state.notice.lock().unwrap() = None;
 }
 
+/// Tray icon for the given capture state, and whether it is a macOS template
+/// image. The menu bar shows the icon ONLY (no title text, to save space):
+/// an outlined drop while idle, a filled green drop while capturing — so an
+/// active capture is always obvious. On macOS the idle drop is a template image
+/// (follows the light/dark menu bar); elsewhere templates are not supported, so
+/// the idle drop is colored to stay visible on dark taskbars.
+fn tray_icon_bytes(capturing: bool) -> (&'static [u8], bool) {
+    if capturing {
+        (include_bytes!("../icons/tray-active.png"), false)
+    } else if cfg!(target_os = "macos") {
+        (include_bytes!("../icons/tray.png"), true)
+    } else {
+        (include_bytes!("../icons/tray-idle-color.png"), false)
+    }
+}
+
 fn update_tray(app: &AppHandle, capturing: bool, count: i64) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let title = if capturing {
-            format!("● Context Drop · {count}")
+        // The state and live item count go to the tooltip, not the menu bar.
+        let tooltip = if capturing {
+            format!("Context Drop — capturing ({count} item(s))")
         } else {
-            "○ Context Drop".to_string()
+            "Context Drop — capture off".to_string()
         };
-        // Title is macOS-only; also change the ICON and TOOLTIP so the capture
-        // state is visible on Windows/Linux (where set_title is a no-op).
-        let _ = tray.set_title(Some(&title));
-        let _ = tray.set_tooltip(Some(&title));
-        let icon_bytes: &[u8] = if capturing {
-            include_bytes!("../icons/tray-active.png")
-        } else {
-            include_bytes!("../icons/tray.png")
-        };
+        let _ = tray.set_tooltip(Some(&tooltip));
+        let (icon_bytes, template) = tray_icon_bytes(capturing);
         if let Ok(icon) = tauri::image::Image::from_bytes(icon_bytes) {
             let _ = tray.set_icon(Some(icon));
-            let _ = tray.set_icon_as_template(!capturing);
+            let _ = tray.set_icon_as_template(template);
         }
     }
 }
@@ -1247,6 +1257,16 @@ pub fn run() {
                 }
             }
 
+            // Refresh an already-installed Context Drop `/cd` alias in every
+            // Claude config dir, so fixes reach existing users (the settings
+            // button is disabled once /cd is installed). Best-effort; never
+            // installs /cd where absent, never touches a user's own /cd.
+            if let Ok(src) = resolve_plugin_src(&handle) {
+                for dir in integration::detect_config_dirs() {
+                    let _ = integration::refresh_short_alias(&dir, &src.join("alias").join("cd"));
+                }
+            }
+
             // TTL cleanup on startup.
             {
                 let state = handle.state::<AppState>();
@@ -1277,15 +1297,14 @@ pub fn run() {
                 .text("quit", "Quit Context Drop")
                 .build()?;
 
-            let icon = app
-                .default_window_icon()
-                .cloned()
-                .or_else(|| tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")).ok());
+            let (icon_bytes, template) = tray_icon_bytes(false);
+            let icon = tauri::image::Image::from_bytes(icon_bytes).ok();
 
             let mut tray = TrayIconBuilder::with_id(TRAY_ID)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .title("○ Context Drop")
+                .icon_as_template(template)
+                .tooltip("Context Drop — capture off")
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "toggle" => do_toggle_capture(app),
                     "clear" => {

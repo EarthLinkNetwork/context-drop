@@ -68,7 +68,7 @@ Instead of the public marketplace, the desktop app can lay down a self-contained
 
 ## 4. Basic use
 
-1. **Start Capture** with the global shortcut (default `CommandOrControl+Shift+9`, configurable). The tray indicator turns solid: `● Context Drop · <item count>`.
+1. **Start Capture** with the global shortcut (default `CommandOrControl+Shift+9`, configurable). The menu-bar drop icon turns solid green (hover it for the live item count on macOS/Windows; on Linux the count is shown in the app window).
 2. **Add your material.** Either way, each item is appended to the current packet and the item list in the window grows as you go:
    - **Copy it** — multiple images, text fragments, and Finder/Explorer files. Each copy while Capture is ON is appended.
    - **Or drag & drop files** onto the Context Drop window — no need to copy, and it works even when Capture is OFF (a drop is itself an explicit "capture this").
@@ -135,7 +135,7 @@ The plugin is self-contained and installed by `context-drop install-claude` (no 
 - **Multiple config dirs:** supported and required for users with many accounts. `CLAUDE_CONFIG_DIR` may be comma- or semicolon-separated; `install-claude` also targets `~/.claude` by default.
 - **One global store:** every plugin instance across every config root talks to the **same** global Context Drop packet store. Packet data is never duplicated per account. The Settings UI shows the config path and install status (e.g. `~/.claude Installed`, `~/.claude-work Installed`, `~/.claude-client2 Not installed`) — never Anthropic account identity.
 
-**`/context-drop:pull` behavior.** The skill loader runs `context-drop claim --json` (via the skill's bundled `claim.sh`) the moment the command expands — so the packet is always claimed first, whatever argument you pass — and the main agent uses only the returned metadata, infers a task mode from your argument, delegates the manifest **path** to the `context-investigator` subagent, relays the compact result, then runs `context-drop consume <packetId>`. Task modes:
+**`/context-drop:pull` behavior.** The main agent first claims the packet with the bundled `claim.sh` / `claim.ps1` (`context-drop claim --json`; with `/cd` the skill loader runs it the moment the command expands, so the claim can never be skipped whatever argument you pass), uses only the returned metadata, infers a task mode from your argument, delegates the manifest **path** to the `context-investigator` subagent, relays the compact result, then runs `context-drop consume <packetId>`. Task modes:
 
 - **ANALYZE** — read-only investigation (default; e.g. "原因だけ調べて", "investigate").
 - **FIX** — investigate → modify repo → test → report (e.g. "原因を調べて直して").

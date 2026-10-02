@@ -486,8 +486,8 @@ and error class.
 The desktop app is a **menu-bar / system-tray utility**, not a large main
 window.
 
-- **Tray title (inactive):** `○ Context Drop`
-- **Tray title (capturing):** `● Context Drop · <item count>`
+- **Tray (inactive):** icon only — an outlined drop (macOS template image; blue elsewhere). No title text.
+- **Tray (capturing):** icon only — a filled green drop; the live item count is in the tooltip (macOS/Windows; Linux trays have no tooltip or title).
 - **Popover:** Current Packet (item count, recent items), Stop Capture, Clear
   Packet; Last Dispatch (project name, item count, time, Undo); Settings (global
   shortcut, TTL, file size limit, packet size limit, Claude integration

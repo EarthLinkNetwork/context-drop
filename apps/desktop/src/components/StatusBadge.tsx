@@ -4,8 +4,8 @@ interface Props {
 }
 
 /**
- * The capture indicator, mirroring the tray title:
- * "○ Context Drop" (idle) / "● Context Drop · N" (capturing).
+ * The in-window capture indicator (the menu bar itself shows only
+ * the outlined (idle) / filled green (capturing) drop icon).
  */
 export function StatusBadge({ capturing, itemCount }: Props) {
   return (

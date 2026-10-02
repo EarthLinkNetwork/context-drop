@@ -80,11 +80,11 @@ fn pull_skill_forbids_reading_raw_content_in_main_agent() {
         body.contains("MUST NOT read"),
         "pull skill states the main agent must not read raw content"
     );
-    // The claim runs deterministically at skill expansion via the bundled
-    // claim.sh, which calls the CLI's `claim --json`.
+    // The claim is the first step, via the bundled claim.sh / claim.ps1, which
+    // call the CLI's `claim --json`.
     assert!(
-        body.contains("!`sh \"${CLAUDE_SKILL_DIR}/claim.sh\""),
-        "pull skill claims at expansion via the bundled claim.sh"
+        body.contains("claim.sh") && body.contains("claim.ps1"),
+        "pull skill claims via the bundled scripts"
     );
     assert!(
         read("skills/pull/claim.sh").contains("claim --json"),

@@ -170,11 +170,62 @@ pub fn install_short_alias(
         });
     }
     copy_dir_recursive(alias_src, &skill_dir)?;
+    adapt_skill_file_for_os(&skill_path, cfg!(windows))?;
     Ok(AliasInstallReport {
         skill_path,
         overwritten: existed,
         skipped_existing: false,
     })
+}
+
+/// Refresh an ALREADY-installed Context Drop `/cd` from `alias_src` (desktop app
+/// startup), so existing users get alias fixes without re-clicking Install.
+/// Never installs `/cd` where it is absent (it is opt-in) and never touches a
+/// user's own `/cd`. Returns whether it rewrote the alias.
+pub fn refresh_short_alias(config_dir: &Path, alias_src: &Path) -> Result<bool, String> {
+    let skill_path = config_dir.join("skills").join("cd").join("SKILL.md");
+    if !is_context_drop_alias(&skill_path) {
+        return Ok(false);
+    }
+    install_short_alias(config_dir, alias_src, false).map(|r| !r.skipped_existing)
+}
+
+/// The claim lines of the `/cd` SKILL.md. The repository file carries the
+/// POSIX form (`sh claim.sh`); on Windows the installer rewrites them to run
+/// `claim.ps1` through `powershell -File`, which means the same thing whether
+/// Claude Code runs the `!` injection in Git Bash, PowerShell, or cmd.
+const POSIX_ALLOWED_TOOLS: &str = r#"allowed-tools: Bash(sh "${CLAUDE_SKILL_DIR}/claim.sh" *)"#;
+const POSIX_INJECTION: &str = r#"!`sh "${CLAUDE_SKILL_DIR}/claim.sh" "${CLAUDE_SESSION_ID}"`"#;
+const WINDOWS_CLAIM_CMD: &str =
+    r#"powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/claim.ps1""#;
+
+/// Rewrite the `/cd` SKILL.md for the target OS. (The plugin's pull skill has
+/// no OS-specific lines: a GitHub-marketplace install never passes through this
+/// installer, so pull has the model run the claim script itself.) A no-op for POSIX, and
+/// idempotent (an already-adapted file has no POSIX lines left to replace).
+pub fn adapt_skill_for_os(content: &str, windows: bool) -> String {
+    if !windows {
+        return content.to_string();
+    }
+    let allowed = format!(
+        "allowed-tools:\n  - Bash({WINDOWS_CLAIM_CMD} *)\n  - PowerShell({WINDOWS_CLAIM_CMD} *)"
+    );
+    let injection = format!(r#"!`{WINDOWS_CLAIM_CMD} "${{CLAUDE_SESSION_ID}}"`"#);
+    content
+        .replace(POSIX_ALLOWED_TOOLS, &allowed)
+        .replace(POSIX_INJECTION, &injection)
+}
+
+fn adapt_skill_file_for_os(path: &Path, windows: bool) -> Result<(), String> {
+    if !windows || !path.is_file() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(path).map_err(io_err)?;
+    let adapted = adapt_skill_for_os(&content, windows);
+    if adapted != content {
+        fs::write(path, adapted).map_err(io_err)?;
+    }
+    Ok(())
 }
 
 /// Whether an installed `/cd` SKILL.md is Context Drop's own short alias (every
@@ -714,35 +765,127 @@ mod tests {
         assert!(skill_dir.join("claim.sh").is_file());
     }
 
-    // Tier A: the shipped /cd alias must stay a faithful copy of the pull skill —
-    // same body (instructions) and byte-identical claim.sh — so the two entry
-    // points can never drift apart.
+    // Tier A: on Windows the claim must run claim.ps1 via `powershell -File`
+    // (no `sh` without Git Bash) and allowed-tools must grant exactly that
+    // command; POSIX content is left untouched. Runs on every OS against the
+    // shipped SKILL.md so a wording change that breaks the rewrite is caught.
     #[test]
-    fn shipped_cd_alias_matches_pull_skill() {
+    fn shipped_cd_alias_adapts_for_windows() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
-        let body = |p: &Path| {
-            // Normalize CRLF (Windows checkouts) before splitting off the frontmatter.
-            let s = fs::read_to_string(p).unwrap().replace("\r\n", "\n");
-            let after_front = s.splitn(3, "---\n").nth(2).unwrap().to_string();
-            after_front
-                .lines()
-                .filter(|l| !l.starts_with("<!--"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        assert_eq!(
-            body(&root.join("alias/cd/SKILL.md")),
-            body(&root.join("skills/pull/SKILL.md"))
+        let shipped = fs::read_to_string(root.join("alias/cd/SKILL.md")).unwrap();
+
+        assert_eq!(adapt_skill_for_os(&shipped, false), shipped);
+
+        let win = adapt_skill_for_os(&shipped, true);
+        assert!(
+            !win.contains(POSIX_ALLOWED_TOOLS),
+            "POSIX allowed-tools left"
         );
-        let claim_alias = fs::read(root.join("alias/cd/claim.sh")).unwrap();
-        assert_eq!(
-            claim_alias,
-            fs::read(root.join("skills/pull/claim.sh")).unwrap()
-        );
+        assert!(!win.contains(POSIX_INJECTION), "POSIX injection left");
+        let inject = r#"!`powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/claim.ps1" "${CLAUDE_SESSION_ID}"`"#;
+        assert_eq!(win.matches(inject).count(), 1);
+        assert!(win.contains(
+            r#"  - Bash(powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/claim.ps1" *)"#
+        ));
+        assert!(win.contains(
+            r#"  - PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_SKILL_DIR}/claim.ps1" *)"#
+        ));
+        // allowed-tools stays inside the frontmatter.
+        let front_end = win.find("\n---").unwrap();
+        assert!(win.find("allowed-tools:").unwrap() < front_end);
+        // Idempotent.
+        assert_eq!(adapt_skill_for_os(&win, true), win);
+    }
+
+    // Tier A: startup refresh upgrades only Context Drop's own /cd — never
+    // installs one where absent, never touches a user's own /cd.
+    #[test]
+    fn refresh_short_alias_touches_only_our_installed_alias() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
+        let src = root.join("alias/cd");
+
+        let absent = tempfile::tempdir().unwrap();
+        assert!(!refresh_short_alias(absent.path(), &src).unwrap());
+        assert!(!absent.path().join("skills/cd").exists());
+
+        let own = tempfile::tempdir().unwrap();
+        let own_skill = own.path().join("skills/cd/SKILL.md");
+        fs::create_dir_all(own_skill.parent().unwrap()).unwrap();
+        fs::write(&own_skill, "my own cd").unwrap();
+        assert!(!refresh_short_alias(own.path(), &src).unwrap());
+        assert_eq!(fs::read_to_string(&own_skill).unwrap(), "my own cd");
+
+        let ours = tempfile::tempdir().unwrap();
+        let ours_skill = ours.path().join("skills/cd/SKILL.md");
+        fs::create_dir_all(ours_skill.parent().unwrap()).unwrap();
+        fs::write(
+            &ours_skill,
+            "description: Short alias for /context-drop:pull. old",
+        )
+        .unwrap();
+        assert!(refresh_short_alias(ours.path(), &src).unwrap());
+        assert!(fs::read_to_string(&ours_skill).unwrap().contains("claim"));
+        assert!(ours.path().join("skills/cd/claim.ps1").is_file());
+    }
+
+    // Tier A: installing the shipped /cd writes the claim line for THIS OS
+    // (claim.ps1 on Windows, claim.sh elsewhere) and ships both scripts.
+    #[test]
+    fn installed_shipped_alias_uses_this_os_claim_script() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
+        let cfg = tempfile::tempdir().unwrap();
+        let r = install_short_alias(cfg.path(), &root.join("alias/cd"), false).unwrap();
+        let installed = fs::read_to_string(&r.skill_path).unwrap();
+        let dir = r.skill_path.parent().unwrap();
+        assert!(dir.join("claim.sh").is_file() && dir.join("claim.ps1").is_file());
+        if cfg!(windows) {
+            assert!(installed
+                .contains(r#"-File "${CLAUDE_SKILL_DIR}/claim.ps1" "${CLAUDE_SESSION_ID}"`"#));
+            assert!(!installed.contains(POSIX_INJECTION));
+        } else {
+            assert!(installed.contains(POSIX_INJECTION));
+            assert!(installed.contains(POSIX_ALLOWED_TOOLS));
+        }
+    }
+
+    // Tier A: the two entry points share the claim scripts byte-for-byte; /cd
+    // claims at expansion (installer-adapted per OS), while the plugin's pull
+    // (installable straight from GitHub, never adapted) must NOT inject a
+    // POSIX-only command — that would stop the skill loading on Windows without
+    // Git Bash — and instead makes the claim the model's first tool call.
+    #[test]
+    fn shipped_skills_claim_safely_on_every_os() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/claude-code");
+        let read = |p: &str| fs::read_to_string(root.join(p)).unwrap();
+        for script in ["claim.sh", "claim.ps1"] {
+            assert_eq!(
+                fs::read(root.join("alias/cd").join(script)).unwrap(),
+                fs::read(root.join("skills/pull").join(script)).unwrap(),
+                "{script} copies differ"
+            );
+        }
         // `sh` rejects CRLF scripts: .gitattributes must keep them LF everywhere.
-        assert!(!claim_alias.contains(&b'\r'), "claim.sh must be LF-only");
-        assert!(body(&root.join("skills/pull/SKILL.md"))
-            .contains("claim.sh\" \"${CLAUDE_SESSION_ID}\"`"));
+        assert!(
+            !read("skills/pull/claim.sh").contains('\r'),
+            "claim.sh must be LF-only"
+        );
+
+        let cd = read("alias/cd/SKILL.md");
+        assert_eq!(cd.matches(POSIX_INJECTION).count(), 1);
+        assert!(cd.contains(POSIX_ALLOWED_TOOLS));
+
+        let pull = read("skills/pull/SKILL.md");
+        assert!(!pull.contains("!`"), "pull must not use loader injection");
+        assert!(pull.contains("first tool call is always the claim"));
+        assert!(pull.contains(r#"sh "${CLAUDE_SKILL_DIR}/claim.sh" "${CLAUDE_SESSION_ID}""#));
+        assert!(pull.contains(r#"-File "${CLAUDE_SKILL_DIR}/claim.ps1" "${CLAUDE_SESSION_ID}""#));
+        // Shared rules stay in both.
+        for s in [&cd, &pull] {
+            assert!(s.contains("MUST NOT read"));
+            assert!(s.contains("always about the captured packet"));
+            assert!(s.contains("PROCESSING_EXIT="));
+            assert!(s.contains("consume <packetId> --claim-id <claimId>"));
+        }
     }
 
     #[test]
