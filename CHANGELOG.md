@@ -5,6 +5,16 @@ All notable changes to Context Drop are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- After updating the desktop app, `context-drop install-claude` (run via the
+  managed CLI) kept installing the Claude Code plugin from the version that was
+  first installed: the CLI falls back to the plugin copy staged in the data dir,
+  which only "Install" refreshed. The app now refreshes that staged copy at
+  startup, alongside the CLI.
+
 ## [0.1.5] - 2026-10-02
 
 ### Changed
