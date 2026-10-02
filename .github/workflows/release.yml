@@ -14,8 +14,13 @@
 #   APPLE_PASSWORD              an app-specific password for that Apple ID
 #   APPLE_TEAM_ID               6XC66ZV9WK
 #
-# Without these secrets the build still runs but is UNSIGNED (Gatekeeper will warn
-# on first launch). GITHUB_TOKEN is provided automatically.
+# All six are REQUIRED: the job fails fast (naming the missing ones) instead of
+# failing later inside codesign. GITHUB_TOKEN is provided automatically.
+#
+# A tag push builds, signs, notarizes, and publishes the GitHub Release.
+# A manual run (workflow_dispatch) does the same build/sign/notarize as a dry
+# run but publishes NOTHING — the signed bundle is uploaded as a workflow
+# artifact instead (so running it from `main` can never create a "main" release).
 name: Release
 
 on:
@@ -51,9 +56,28 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Builds the frontend + bundles the app, then (if the Apple secrets are
-      # present) signs and notarizes it and attaches it to the GitHub Release.
+      - name: Check signing secrets
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing (see the header of release.yml)"
+            exit 1
+          fi
+
+      # Builds the frontend + bundles the app, signs and notarizes it, and — on a
+      # tag push only — attaches it to the GitHub Release.
       - name: Build, sign, notarize, release
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,8 +89,17 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
-          tagName: ${{ github.ref_name }}
+          # Empty on a manual run => tauri-action builds only, no release.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: "Context Drop ${{ github.ref_name }}"
           releaseBody: "See CHANGELOG.md for what's in this release."
           releaseDraft: false
           prerelease: false
+
+      - name: Upload signed bundle (manual dry run)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: context-drop-macos-arm64
+          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
