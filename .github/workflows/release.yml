@@ -19,7 +19,7 @@
 #
 # A tag push builds, signs, notarizes, and publishes the GitHub Release.
 # A manual run (workflow_dispatch) does the same build/sign/notarize as a dry
-# run but publishes NOTHING — the signed bundle is uploaded as a workflow
+# run but publishes NOTHING — the notarized DMG is uploaded as a workflow
 # artifact instead (so running it from `main` can never create a "main" release).
 name: Release
 
@@ -74,13 +74,12 @@ jobs:
             exit 1
           fi
 
-      # Builds the frontend + bundles the app, signs and notarizes it, and — on a
-      # tag push only — attaches it to the GitHub Release.
-      - name: Build, sign, notarize, release
-        id: tauri
+      # Builds the frontend and bundles the app; tauri signs and notarizes the
+      # .app. It never publishes: the DMG itself is notarized + stapled below
+      # first (as the local releases were), then published on a tag push.
+      - name: Build and sign (tauri)
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -89,17 +88,46 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
-          # Only a tag PUSH publishes; any manual run (even on a tag) builds only.
-          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
-          releaseName: "Context Drop ${{ github.ref_name }}"
-          releaseBody: "See CHANGELOG.md for what's in this release."
-          releaseDraft: false
-          prerelease: false
 
-      - name: Upload signed bundle (manual dry run)
+      - name: Notarize and staple the DMG
+        id: dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          src=$(ls apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n 1)
+          out="Context-Drop-${REF_NAME//\//-}-macos-arm64.dmg"
+          cp "$src" "$out"
+          xcrun notarytool submit "$out" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait --timeout 30m | tee notarize.log
+          grep -q "status: Accepted" notarize.log
+          xcrun stapler staple "$out"
+          xcrun stapler validate "$out"
+          spctl -a -vvv -t install "$out"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+
+      # Only a tag PUSH publishes; any manual run (even on a tag) builds only.
+      - name: Publish GitHub Release (tag push)
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          DMG: ${{ steps.dmg.outputs.path }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" --clobber
+          else
+            gh release create "$TAG" "$DMG" --title "Context Drop $TAG" \
+              --notes "See CHANGELOG.md for what's in this release."
+          fi
+
+      - name: Upload notarized DMG (manual dry run)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
           name: context-drop-macos-arm64
-          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          path: ${{ steps.dmg.outputs.path }}
           if-no-files-found: error
