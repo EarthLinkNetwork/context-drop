@@ -40,3 +40,7 @@ ContextDrop/
 # Release artifacts (built locally; distributed via GitHub Releases)
 /Context-Drop-*.zip
 /*.dmg
+
+# Signing material: exported Developer ID certificates must never be committed.
+*.p12
+*.p8
