@@ -40,6 +40,7 @@ Context Drop is **not** an always-on clipboard monitor.
 - **Capture is OFF by default.** The clipboard is monitored **only while Capture is ON**. There is no always-on daemon and no hidden background collection.
 - **The tray indicator makes capture obvious.** While Capture is ON the menu-bar icon is a filled green drop (live item count in its tooltip), versus the outlined drop when inactive. Capture never silently stays ON.
 - **Capture is OFF after restart.** On app restart, Capture is **OFF by default and never auto-resumes**. An existing `DRAFT` packet may remain recoverable, but collection is OFF until you explicitly start it again.
+- **One-shot capture is explicit too.** "Capture Clipboard Now" reads the clipboard **once**, at the moment you press it, and adds that content to the current packet. It does not turn Capture ON or keep watching.
 - **Explicit start/stop.** Capture is toggled by the user — via the global shortcut (default `CommandOrControl+Shift+9`, user-configurable) or the popover. A claim from `/context-drop:pull` also auto-ends capture (the `DRAFT` transitions to `CLAIMED` and any later append is refused).
 
 ---

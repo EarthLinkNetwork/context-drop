@@ -488,8 +488,11 @@ window.
 
 - **Tray (inactive):** icon only — an outlined drop (macOS template image; blue elsewhere). No title text.
 - **Tray (capturing):** icon only — a filled green drop; the live item count is in the tooltip (macOS/Windows; Linux trays have no tooltip or title).
-- **Popover:** Current Packet (item count, recent items), Stop Capture, Clear
-  Packet; Last Dispatch (project name, item count, time, Undo); Settings (global
+- **Popover:** app version in the header; Start/Stop Capture, Capture Clipboard
+  Now (one-shot read of the current clipboard); Current Packet (item count,
+  recent items), Clear Packet; Recent Dispatches (last 10: project, the pull
+  instruction as a note, terminal tab, session, account, cwd, item count, time;
+  Undo on the newest); Settings (global
   shortcut, TTL, file size limit, packet size limit, Claude integration
   status/list, Install integration, Install `/cd` alias, Open data folder,
   Privacy info).

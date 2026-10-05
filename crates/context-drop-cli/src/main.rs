@@ -12,8 +12,8 @@ use clap::{Parser, Subcommand};
 use context_drop_core::clock::ms_to_rfc3339;
 use context_drop_core::integration as install;
 use context_drop_core::{
-    claim, consume, detect_project, last_dispatch, list, mark_processing, release, status, undo,
-    ClaimContext, CoreError, Db, Storage, DEFAULT_UNDO_WINDOW_MS,
+    claim, consume, detect_project, last_dispatch, list, mark_processing, release, set_claim_note,
+    status, undo, ClaimContext, CoreError, Db, Storage, DEFAULT_UNDO_WINDOW_MS,
 };
 use serde_json::json;
 
@@ -56,6 +56,10 @@ enum Command {
         /// Working directory to route from (defaults to the process cwd).
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// The user's instruction for this pull, shown in the desktop's
+        /// dispatch history (so sessions on the same project can be told apart).
+        #[arg(long)]
+        note: Option<String>,
     },
     /// Mark a claimed packet as PROCESSING (a subagent has started). Protects it
     /// from TTL cleanup while it is being investigated.
@@ -76,6 +80,20 @@ enum Command {
         /// claim, so a re-claim of the same packet is never consumed by mistake).
         #[arg(long)]
         claim_id: Option<String>,
+    },
+    /// Record the user's pull instruction on a claim, for the desktop's
+    /// dispatch history. Metadata only — never packet content.
+    Note {
+        /// The claim id returned by `claim --json`.
+        #[arg(long)]
+        claim_id: String,
+        /// Session id (defaults to $CLAUDE_CODE_SESSION_ID).
+        #[arg(long)]
+        session_id: Option<String>,
+        /// The note text (trimmed to one line, at most 500 characters). Pass it
+        /// after `--` so text starting with `-` is not read as an option.
+        #[arg(allow_hyphen_values = true)]
+        text: String,
     },
     /// Release a packet back to READY (routing undone; no code rollback).
     Release { packet_id: String },
@@ -137,7 +155,8 @@ fn run(cli: &Cli) -> Result<u8, String> {
             json,
             session_id,
             cwd,
-        } => cmd_claim(cli, *json, session_id.clone(), cwd.clone()),
+            note,
+        } => cmd_claim(cli, *json, session_id.clone(), cwd.clone(), note.clone()),
         Command::Processing {
             packet_id,
             session_id,
@@ -148,6 +167,11 @@ fn run(cli: &Cli) -> Result<u8, String> {
             session_id,
             claim_id,
         } => cmd_consume(cli, packet_id, session_id.clone(), claim_id.clone()),
+        Command::Note {
+            claim_id,
+            session_id,
+            text,
+        } => cmd_note(cli, claim_id, session_id.clone(), text),
         Command::Release { packet_id } => cmd_release(cli, packet_id),
         Command::Undo { json, session_id } => cmd_undo(cli, *json, session_id.clone()),
         Command::List { json } => cmd_list(cli, *json),
@@ -248,6 +272,8 @@ fn cmd_status(cli: &Cli, as_json: bool) -> Result<u8, String> {
                 "itemCount": l.item_count,
                 "claimedAt": ms_to_rfc3339(l.claimed_at_ms),
                 "state": l.packet_state.as_str(),
+                "note": l.note,
+                "terminal": l.terminal,
             })),
         });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
@@ -277,6 +303,7 @@ fn cmd_claim(
     as_json: bool,
     session_override: Option<String>,
     cwd_override: Option<PathBuf>,
+    note: Option<String>,
 ) -> Result<u8, String> {
     let (mut db, storage) = open_store(cli)?;
 
@@ -294,6 +321,8 @@ fn cmd_claim(
         project_root: project.project_root.clone(),
         project_name: project.project_name.clone(),
         config_dir,
+        note,
+        terminal: detect_terminal(|k| std::env::var(k).ok()),
     };
 
     match claim(&mut db, &storage, &ctx) {
@@ -417,6 +446,36 @@ fn cmd_consume(
                 "Packet {} is no longer claimed by this session (it was released and re-claimed); \
                  not consuming.",
                 short(packet_id)
+            );
+            Ok(EXIT_ERROR)
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn cmd_note(
+    cli: &Cli,
+    claim_id: &str,
+    session_override: Option<String>,
+    text: &str,
+) -> Result<u8, String> {
+    let (mut db, _storage) = open_store(cli)?;
+    let session_id = session_override
+        .or_else(|| std::env::var("CLAUDE_CODE_SESSION_ID").ok())
+        .filter(|s| !s.trim().is_empty());
+    let Some(session_id) = session_id else {
+        eprintln!("No Claude Code session id available; cannot add a note.");
+        return Ok(EXIT_MISSING_SESSION);
+    };
+    match set_claim_note(&mut db, claim_id, &session_id, text) {
+        Ok(true) => {
+            println!("Noted claim {}", short(claim_id));
+            Ok(EXIT_OK)
+        }
+        Ok(false) => {
+            eprintln!(
+                "Claim {} is not this session's; note not saved.",
+                short(claim_id)
             );
             Ok(EXIT_ERROR)
         }
@@ -680,6 +739,88 @@ fn emit_error(as_json: bool, code: &str, message: &str) {
 }
 
 /// A short id prefix for human-readable output.
+/// A short label for the terminal tab/pane this claim ran in, from the
+/// environment the terminal exports (e.g. iTerm2's `w0t2p0` = window 0, tab 2,
+/// pane 0). `None` when the terminal is unknown.
+fn detect_terminal(env: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let nonempty = |k: &str| env(k).filter(|v| !v.trim().is_empty());
+    if let Some(id) = nonempty("ITERM_SESSION_ID") {
+        let pos = id.split(':').next().unwrap_or(&id);
+        return Some(format!("iTerm2 {pos}"));
+    }
+    if let Some(pane) = nonempty("TMUX_PANE") {
+        return Some(format!("tmux {pane}"));
+    }
+    if let Some(pane) = nonempty("WEZTERM_PANE") {
+        return Some(format!("WezTerm pane {pane}"));
+    }
+    let program = nonempty("TERM_PROGRAM")?;
+    match nonempty("TERM_SESSION_ID") {
+        Some(sid) => {
+            let tail: String = sid
+                .chars()
+                .rev()
+                .take(6)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            Some(format!("{program} …{tail}"))
+        }
+        None => Some(program),
+    }
+}
+
 fn short(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::detect_terminal;
+    use std::collections::HashMap;
+
+    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |k| map.get(k).cloned()
+    }
+
+    #[test]
+    fn iterm_reports_window_tab_pane_without_the_uuid() {
+        let env = env_of(&[
+            (
+                "ITERM_SESSION_ID",
+                "w0t2p0:6F0A1B2C-0000-4000-8000-00000000A152",
+            ),
+            ("TERM_PROGRAM", "iTerm.app"),
+        ]);
+        assert_eq!(detect_terminal(env).as_deref(), Some("iTerm2 w0t2p0"));
+    }
+
+    #[test]
+    fn tmux_pane_wins_over_term_program() {
+        let env = env_of(&[("TMUX_PANE", "%3"), ("TERM_PROGRAM", "Apple_Terminal")]);
+        assert_eq!(detect_terminal(env).as_deref(), Some("tmux %3"));
+    }
+
+    #[test]
+    fn plain_terminal_uses_the_session_id_tail() {
+        let env = env_of(&[
+            ("TERM_PROGRAM", "Apple_Terminal"),
+            ("TERM_SESSION_ID", "ABCDEF-123456"),
+        ]);
+        assert_eq!(
+            detect_terminal(env).as_deref(),
+            Some("Apple_Terminal …123456")
+        );
+    }
+
+    #[test]
+    fn unknown_terminal_is_none() {
+        assert_eq!(detect_terminal(env_of(&[])), None);
+        assert_eq!(detect_terminal(env_of(&[("ITERM_SESSION_ID", " ")])), None);
+    }
 }

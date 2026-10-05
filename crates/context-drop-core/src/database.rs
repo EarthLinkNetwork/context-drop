@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::clock::now_ms;
 use crate::error::Result;
@@ -17,7 +17,7 @@ use crate::packet::{ItemKind, Packet, PacketItem, PacketState};
 use crate::settings::Settings;
 
 /// The latest schema version this build knows how to produce.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Busy timeout for lock contention (concurrent claims/appends).
 const BUSY_TIMEOUT: Duration = Duration::from_millis(5_000);
@@ -97,6 +97,34 @@ impl Db {
         if current < 1 {
             self.apply_v1()?;
         }
+        if current < 2 {
+            self.apply_v2()?;
+        }
+        Ok(())
+    }
+
+    /// v2: per-claim note (the user's pull instruction) and terminal label, for
+    /// the desktop dispatch history. Nullable, so older rows stay valid.
+    fn apply_v2(&mut self) -> Result<()> {
+        // IMMEDIATE + re-check: the app and a CLI may open the DB at the same
+        // time; only the first may add the columns (a second ALTER would fail).
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let v: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if v >= 2 {
+            return Ok(());
+        }
+        tx.execute_batch(
+            "ALTER TABLE claims ADD COLUMN note TEXT;
+             ALTER TABLE claims ADD COLUMN terminal TEXT;",
+        )?;
+        tx.execute(
+            "INSERT INTO migrations(version, applied_at_ms) VALUES (2, ?1)",
+            params![now_ms()],
+        )?;
+        tx.pragma_update(None, "user_version", 2)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -288,7 +316,7 @@ pub(crate) fn latest_claim_meta(conn: &Connection, packet_id: &str) -> Result<Op
         .query_row(
             "SELECT session_id, cwd, project_root, project_name, config_dir, claimed_at_ms
              FROM claims WHERE packet_id = ?1
-             ORDER BY claimed_at_ms DESC LIMIT 1",
+             ORDER BY claimed_at_ms DESC, rowid DESC LIMIT 1",
             params![packet_id],
             |row| {
                 let claimed_at_ms: i64 = row.get("claimed_at_ms")?;
@@ -331,12 +359,90 @@ mod tests {
         }
         // Re-open: migration must not re-run or error.
         let db = Db::open(&path).unwrap();
-        assert_eq!(db.schema_version().unwrap(), 1);
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
         let count: i64 = db
             .conn
             .query_row("SELECT COUNT(*) FROM migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 1);
+        assert_eq!(count, SCHEMA_VERSION as i64);
+    }
+
+    #[test]
+    fn concurrent_opens_of_a_v1_database_migrate_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            Db::configure(&conn).unwrap();
+            let mut db = Db { conn };
+            db.apply_v1().unwrap();
+        }
+        // The app and a CLI (or two CLIs) opening the old DB at once must all
+        // succeed; only one of them may add the v2 columns.
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || Db::open(&path).map(|db| db.schema_version().unwrap()))
+            })
+            .collect();
+        for h in handles {
+            assert_eq!(h.join().unwrap().unwrap(), 2);
+        }
+        let db = Db::open(&path).unwrap();
+        let v2_rows: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM migrations WHERE version = 2",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v2_rows, 1);
+        // A v1-era writer (no note/terminal columns named) still inserts fine.
+        db.conn
+            .execute_batch(
+                "INSERT INTO packets(id, state, created_at_ms, updated_at_ms, total_bytes)
+                 VALUES ('p9', 'CLAIMED', 1, 1, 0);
+                 INSERT INTO claims(id, packet_id, session_id, cwd, project_root, project_name,
+                                    config_dir, claimed_at_ms, released_at_ms, status)
+                 VALUES ('c9', 'p9', 's', '/r', '/r', 'r', NULL, 1, NULL, 'active');",
+            )
+            .unwrap();
+        // ...and a v1-era reader (the latest_claim_meta query) still reads it.
+        let meta = latest_claim_meta(&db.conn, "p9").unwrap().unwrap();
+        assert_eq!(meta.session_id, "s");
+    }
+
+    #[test]
+    fn v1_database_upgrades_to_v2_keeping_claims() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            // Build a v1-only database (as written by app <= 0.1.5) with a claim.
+            let conn = Connection::open(&path).unwrap();
+            Db::configure(&conn).unwrap();
+            let mut db = Db { conn };
+            db.apply_v1().unwrap();
+            db.conn
+                .execute_batch(
+                    "INSERT INTO packets(id, state, created_at_ms, updated_at_ms, total_bytes)
+                     VALUES ('p1', 'CLAIMED', 1, 1, 0);
+                     INSERT INTO claims(id, packet_id, session_id, cwd, project_root, project_name,
+                                        config_dir, claimed_at_ms, released_at_ms, status)
+                     VALUES ('c1', 'p1', 's1', '/r', '/r', 'r', NULL, 5, NULL, 'active');",
+                )
+                .unwrap();
+            assert_eq!(db.schema_version().unwrap(), 1);
+        }
+        let db = Db::open(&path).unwrap();
+        assert_eq!(db.schema_version().unwrap(), 2);
+        let (note, terminal): (Option<String>, Option<String>) = db
+            .conn
+            .query_row("SELECT note, terminal FROM claims WHERE id='c1'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((note, terminal), (None, None));
     }
 
     #[test]

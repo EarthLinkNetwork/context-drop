@@ -4,8 +4,9 @@
 //! live in `concurrency.rs`.
 
 use context_drop_core::{
-    append_snapshot, claim, create_draft, finalize_capture, undo, AppendOutcome, ClaimContext,
-    CoreError, Limits, PacketState, DEFAULT_UNDO_WINDOW_MS,
+    append_snapshot, claim, create_draft, finalize_capture, last_dispatch, recent_dispatches,
+    set_claim_note, undo, AppendOutcome, ClaimContext, CoreError, Limits, PacketState,
+    DEFAULT_UNDO_WINDOW_MS, MAX_CLAIM_NOTE_CHARS,
 };
 use context_drop_integration_tests::{draft_with_items, text_snapshot, Harness};
 
@@ -16,6 +17,8 @@ fn ctx(session: &str, root: &str, config_dir: Option<&str>) -> ClaimContext {
         project_root: root.to_string(),
         project_name: root.rsplit('/').next().unwrap_or(root).to_string(),
         config_dir: config_dir.map(|s| s.to_string()),
+        note: None,
+        terminal: None,
     }
 }
 
@@ -167,6 +170,8 @@ fn missing_session_id_is_rejected_not_routed_by_project() {
         project_root: "/repo/a".into(),
         project_name: "a".into(),
         config_dir: None,
+        note: None,
+        terminal: None,
     };
     let res = claim(&mut db, &h.storage, &no_session);
     assert!(matches!(res, Err(CoreError::MissingSessionId)));
@@ -258,4 +263,65 @@ fn undo_outside_window_is_not_eligible() {
         undo(&mut db, &h.storage, "S1", 0),
         Err(CoreError::NothingToUndo)
     ));
+}
+
+#[test]
+fn recent_dispatches_lists_newest_first_with_session_details_capped_at_limit() {
+    let h = Harness::new();
+    let mut db = h.open_db();
+    for i in 0..12 {
+        draft_with_items(&mut db, &h.storage, 1);
+        let mut c = ctx(&format!("S{i}"), "/repo/infra-ops", Some("/home/u/.claude"));
+        c.note = Some(format!("instruction {i}"));
+        c.terminal = Some(format!("iTerm2 w0t{i}p0"));
+        claim(&mut db, &h.storage, &c).unwrap();
+    }
+    let list = recent_dispatches(&db, 10).unwrap();
+    assert_eq!(list.len(), 10);
+    assert_eq!(list[0].session_id, "S11", "newest first");
+    assert_eq!(list[9].session_id, "S2");
+    assert_eq!(list[0].note.as_deref(), Some("instruction 11"));
+    assert_eq!(list[0].terminal.as_deref(), Some("iTerm2 w0t11p0"));
+    assert_eq!(list[0].cwd, "/repo/infra-ops");
+    assert_eq!(list[0].config_dir.as_deref(), Some("/home/u/.claude"));
+    assert_eq!(list[0].item_count, 1);
+    // last_dispatch is the head of the same list.
+    assert_eq!(last_dispatch(&db).unwrap().unwrap(), list[0]);
+}
+
+#[test]
+fn claim_note_is_single_line_trimmed_and_capped() {
+    let h = Harness::new();
+    let mut db = h.open_db();
+    draft_with_items(&mut db, &h.storage, 1);
+    let mut c = ctx("S1", "/repo/a", None);
+    c.note = Some(format!("  原因を\n調べて\t直して {}  ", "x".repeat(600)));
+    claim(&mut db, &h.storage, &c).unwrap();
+    let note = last_dispatch(&db).unwrap().unwrap().note.unwrap();
+    assert!(note.starts_with("原因を 調べて 直して x"), "{note}");
+    assert_eq!(note.chars().count(), MAX_CLAIM_NOTE_CHARS - 2);
+
+    // A blank note / terminal is stored as NULL.
+    draft_with_items(&mut db, &h.storage, 1);
+    let mut c = ctx("S2", "/repo/a", None);
+    c.note = Some(" \n ".into());
+    c.terminal = Some("".into());
+    claim(&mut db, &h.storage, &c).unwrap();
+    let d = last_dispatch(&db).unwrap().unwrap();
+    assert_eq!((d.note, d.terminal), (None, None));
+}
+
+#[test]
+fn set_claim_note_only_touches_this_sessions_claim() {
+    let h = Harness::new();
+    let mut db = h.open_db();
+    draft_with_items(&mut db, &h.storage, 1);
+    let c = claim(&mut db, &h.storage, &ctx("S1", "/repo/a", None)).unwrap();
+    assert!(!set_claim_note(&mut db, &c.claim_id, "OTHER", "hijack").unwrap());
+    assert_eq!(last_dispatch(&db).unwrap().unwrap().note, None);
+    assert!(set_claim_note(&mut db, &c.claim_id, "S1", "IAM の修正\nを調べて").unwrap());
+    assert_eq!(
+        last_dispatch(&db).unwrap().unwrap().note.as_deref(),
+        Some("IAM の修正 を調べて")
+    );
 }

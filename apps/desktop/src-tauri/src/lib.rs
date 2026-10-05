@@ -26,13 +26,15 @@ use context_drop_core::{
     undo_last_dispatch, AppendOutcome, CapturedItem, CapturedSnapshot, Db, ItemKind, Limits,
     PacketItem, PacketState, Settings, Storage, DEFAULT_UNDO_WINDOW_MS,
 };
-use context_drop_clipboard::{Payload, Watcher};
+use context_drop_clipboard::{ClipboardProvider, Payload, Watcher};
 
 /// How often the capture loop polls the clipboard while ON. Cheap change tokens
 /// mean an unchanged clipboard costs almost nothing; this never busy-loops.
 const POLL_INTERVAL: Duration = Duration::from_millis(350);
 const TRAY_ID: &str = "main";
 const RECENT_ITEMS: usize = 8;
+/// How many past dispatches the desktop lists (newest first).
+const RECENT_DISPATCHES: usize = 10;
 
 /// Shared application state. Fields the capture thread needs are `Arc`s so they
 /// can be cloned into the thread; the rest are accessed via the Tauri `State`.
@@ -110,6 +112,36 @@ struct LastDispatchInfo {
     item_count: i64,
     claimed_at: String,
     state: String,
+    session_id: String,
+    cwd: String,
+    config_dir: Option<String>,
+    /// The user's pull instruction (recorded by the plugin), if any.
+    note: Option<String>,
+    /// Terminal tab/pane label (e.g. "iTerm2 w0t2p0"), if known.
+    terminal: Option<String>,
+}
+
+impl From<&context_drop_core::LastDispatch> for LastDispatchInfo {
+    fn from(l: &context_drop_core::LastDispatch) -> Self {
+        LastDispatchInfo {
+            packet_id: l.packet_id.clone(),
+            project_name: l.project_name.clone(),
+            item_count: l.item_count,
+            claimed_at: context_drop_core::clock::ms_to_rfc3339(l.claimed_at_ms),
+            // A claim undone (and maybe re-claimed by another session) shows as
+            // RELEASED rather than the packet's current state.
+            state: if l.claim_status == "released" {
+                "RELEASED".to_string()
+            } else {
+                l.packet_state.as_str().to_string()
+            },
+            session_id: l.session_id.clone(),
+            cwd: l.cwd.clone(),
+            config_dir: l.config_dir.clone(),
+            note: l.note.clone(),
+            terminal: l.terminal.clone(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -132,12 +164,16 @@ struct AppSnapshot {
     shortcut_registered: bool,
     current_draft: Option<CurrentDraft>,
     last_dispatch: Option<LastDispatchInfo>,
+    /// The most recent dispatches, newest first (capped at RECENT_DISPATCHES).
+    recent_dispatches: Vec<LastDispatchInfo>,
     ready_count: i64,
     settings: Settings,
     integrations: Vec<IntegrationStatus>,
     /// The public GitHub marketplace slug for `/plugin marketplace add`.
     marketplace_github: String,
     notice: Option<String>,
+    /// The running app's version (from tauri.conf.json), shown in the UI.
+    app_version: String,
 }
 
 // ---- Helpers ------------------------------------------------------------
@@ -243,13 +279,12 @@ fn build_snapshot(app: &AppHandle) -> Result<AppSnapshot, String> {
         None => None,
     };
 
-    let last_dispatch = report.last_dispatch.as_ref().map(|l| LastDispatchInfo {
-        packet_id: l.packet_id.clone(),
-        project_name: l.project_name.clone(),
-        item_count: l.item_count,
-        claimed_at: context_drop_core::clock::ms_to_rfc3339(l.claimed_at_ms),
-        state: l.packet_state.as_str().to_string(),
-    });
+    let last_dispatch = report.last_dispatch.as_ref().map(LastDispatchInfo::from);
+    let recent_dispatches = context_drop_core::recent_dispatches(&db, RECENT_DISPATCHES)
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(LastDispatchInfo::from)
+        .collect();
 
     let settings = db.load_settings().map_err(|e| e.to_string())?;
     let integrations = integration::detect_config_dirs()
@@ -277,11 +312,13 @@ fn build_snapshot(app: &AppHandle) -> Result<AppSnapshot, String> {
         shortcut_registered,
         current_draft,
         last_dispatch,
+        recent_dispatches,
         ready_count: report.ready_count,
         settings,
         integrations,
         marketplace_github: integration::MARKETPLACE_GITHUB.to_string(),
         notice,
+        app_version: app.package_info().version.to_string(),
     })
 }
 
@@ -833,7 +870,38 @@ fn do_drop(app: &AppHandle, paths: Vec<PathBuf>) -> Result<(), String> {
         .map(context_drop_clipboard::file_item)
         .collect();
     let raw = context_drop_clipboard::RawCapture::from_items(items);
+    append_once(app, &raw, "Drop target vanished; try again.")
+}
 
+/// Capture what is on the clipboard RIGHT NOW, once, without starting Capture —
+/// for when the user already copied something before pressing Start Capture.
+/// Like a drop it is an explicit "capture this", so it works whether or not
+/// Capture is ON and appends to the current DRAFT (reusing or creating one).
+fn do_capture_clipboard_now(app: &AppHandle) -> Result<(), String> {
+    let mut provider = context_drop_clipboard::system_provider()
+        .map_err(|e| format!("clipboard unavailable: {e}"))?;
+    let raw = match provider.read() {
+        Ok(Some(raw)) => raw,
+        Ok(None) => {
+            set_notice(app, "Nothing captured: the clipboard is empty or unsupported.");
+            let _ = app.emit("cd:refresh", ());
+            return Ok(());
+        }
+        Err(e) => return Err(format!("could not read the clipboard: {e}")),
+    };
+    // Clear any stale notice so THIS capture's outcome is what the user sees.
+    clear_notice(app);
+    append_once(app, &raw, "Capture target vanished; try again.")
+}
+
+/// Append a one-shot capture (drop / clipboard-now) to the current DRAFT,
+/// reusing the same size-budget enforcement and atomic append as the capture
+/// loop. Outcomes other than success are surfaced as a notice.
+fn append_once(
+    app: &AppHandle,
+    raw: &context_drop_clipboard::RawCapture,
+    vanished_notice: &str,
+) -> Result<(), String> {
     let state = app.state::<AppState>();
     // Use the SAVED limits: `state.limits` may still be the default before the
     // first capture start / settings save, so read the persisted settings.
@@ -841,7 +909,7 @@ fn do_drop(app: &AppHandle, paths: Vec<PathBuf>) -> Result<(), String> {
         let db = open_db(&state.storage)?;
         db.load_settings().map_err(|e| e.to_string())?.limits()
     };
-    let Some(snapshot) = map_capture(app, &raw, &limits) else {
+    let Some(snapshot) = map_capture(app, raw, &limits) else {
         // Every item was skipped; map_capture already set an explanatory notice.
         let _ = app.emit("cd:refresh", ());
         return Ok(());
@@ -890,9 +958,7 @@ fn do_drop(app: &AppHandle, paths: Vec<PathBuf>) -> Result<(), String> {
                 app,
                 format!("Packet is full (limit {limit} bytes); item rejected"),
             ),
-            Err(context_drop_core::CoreError::PacketNotFound(_)) => {
-                set_notice(app, "Drop target vanished; try again.")
-            }
+            Err(context_drop_core::CoreError::PacketNotFound(_)) => set_notice(app, vanished_notice),
             Err(e) => return Err(e.to_string()),
         }
     }
@@ -932,6 +998,11 @@ fn get_snapshot(app: AppHandle) -> Result<AppSnapshot, String> {
 #[tauri::command]
 fn start_capture(app: AppHandle) -> Result<(), String> {
     do_start_capture(&app)
+}
+
+#[tauri::command]
+fn capture_clipboard_now(app: AppHandle) -> Result<(), String> {
+    do_capture_clipboard_now(&app)
 }
 
 #[tauri::command]
@@ -1099,7 +1170,8 @@ fn open_data_folder(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn privacy_info() -> String {
     "Context Drop is local-only: no telemetry, analytics, or cloud backend, and it transmits \
-     nothing over the network. Clipboard items are captured only while Capture is ON. The only \
+     nothing over the network. The clipboard is watched only while Capture is ON (or read once \
+     when you press Capture Clipboard Now). The only \
      time packet content leaves your machine is when Claude Code itself sends it to its configured \
      model provider as the isolated subagent reads it."
         .to_string()
@@ -1211,6 +1283,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             start_capture,
+            capture_clipboard_now,
             stop_capture,
             clear_packet,
             undo_last,

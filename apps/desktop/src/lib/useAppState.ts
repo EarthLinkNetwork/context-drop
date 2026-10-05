@@ -10,6 +10,7 @@ export interface AppStateHook {
   dragOver: boolean;
   refresh: () => Promise<void>;
   startCapture: () => Promise<void>;
+  captureClipboardNow: () => Promise<void>;
   stopCapture: () => Promise<void>;
   clearPacket: () => Promise<void>;
   deleteItem: (packetId: string, itemId: string) => Promise<void>;
@@ -107,6 +108,7 @@ export function useAppState(pollMs = 1500): AppStateHook {
     dragOver,
     refresh,
     startCapture: () => act(api.startCapture).then(() => undefined),
+    captureClipboardNow: () => act(api.captureClipboardNow).then(() => undefined),
     stopCapture: () => act(api.stopCapture).then(() => undefined),
     clearPacket: () => act(api.clearPacket).then(() => undefined),
     deleteItem: (packetId, itemId) =>

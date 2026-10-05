@@ -40,6 +40,13 @@ body {
   font-weight: 600;
   font-size: 14px;
 }
+.status-version {
+  margin-left: 4px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .dot-on {
   color: var(--ok);
 }
@@ -195,6 +202,11 @@ body {
   background: var(--danger);
   color: #200606;
 }
+.capture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .btn-small {
   padding: 3px 8px;
   font-size: 12px;
@@ -343,14 +355,41 @@ body {
   border-radius: 4px;
 }
 
+.dispatch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dispatch-entry + .dispatch-entry {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+}
+.dispatch-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .dispatch-project {
   font-weight: 600;
   margin: 0;
 }
+.dispatch-head .btn-undo {
+  margin-left: auto;
+}
+.dispatch-note {
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .dispatch-meta {
   color: var(--muted);
   font-size: 12px;
-  margin: 2px 0 8px;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .field {

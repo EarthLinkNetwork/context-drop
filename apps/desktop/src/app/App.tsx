@@ -49,7 +49,7 @@ export function App() {
           <span>⤓ Drop to capture</span>
         </div>
       )}
-      <StatusBadge capturing={snap.capturing} itemCount={itemCount} />
+      <StatusBadge capturing={snap.capturing} itemCount={itemCount} version={snap.appVersion} />
 
       {state.error && (
         <p className="error-banner" role="alert" data-testid="error-banner">
@@ -112,6 +112,7 @@ export function App() {
           busy={state.busy}
           onStart={() => void state.startCapture()}
           onStop={() => void state.stopCapture()}
+          onCaptureNow={() => void state.captureClipboardNow()}
         />
 
         <CurrentPacket
@@ -125,7 +126,7 @@ export function App() {
         />
 
         <LastDispatch
-          dispatch={snap.lastDispatch}
+          dispatches={snap.recentDispatches}
           busy={state.busy}
           onUndo={() => void state.undoLast()}
         />

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "context-drop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Route a captured Context Drop packet (clipboard images, logs, JSON, files) into THIS Claude Code session and process it in an isolated subagent — keeping raw context out of the main conversation.",
   "author": {
     "name": "Context Drop contributors",

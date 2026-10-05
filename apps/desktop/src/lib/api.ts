@@ -26,6 +26,13 @@ export interface LastDispatchInfo {
   itemCount: number;
   claimedAt: string;
   state: string;
+  sessionId: string;
+  cwd: string;
+  configDir: string | null;
+  /** The user's pull instruction, recorded by the plugin. */
+  note: string | null;
+  /** Terminal tab/pane label, e.g. "iTerm2 w0t2p0". */
+  terminal: string | null;
 }
 
 export interface IntegrationStatus {
@@ -54,6 +61,8 @@ export interface AppSnapshot {
   shortcutRegistered: boolean;
   currentDraft: CurrentDraft | null;
   lastDispatch: LastDispatchInfo | null;
+  /** Recent dispatches, newest first (up to 10). */
+  recentDispatches: LastDispatchInfo[];
   readyCount: number;
   settings: Settings;
   integrations: IntegrationStatus[];
@@ -61,6 +70,8 @@ export interface AppSnapshot {
   marketplaceGithub: string;
   /** A transient notice from the backend (e.g. an item rejected for size). */
   notice: string | null;
+  /** The running app's version (e.g. "0.1.6"). */
+  appVersion: string;
 }
 
 // ---- Command surface ----------------------------------------------------
@@ -72,6 +83,7 @@ export interface AppSnapshot {
 export const api = {
   getSnapshot: () => invoke<AppSnapshot>("get_snapshot"),
   startCapture: () => invoke<void>("start_capture"),
+  captureClipboardNow: () => invoke<void>("capture_clipboard_now"),
   stopCapture: () => invoke<void>("stop_capture"),
   clearPacket: () => invoke<void>("clear_packet"),
   undoLast: () => invoke<string>("undo_last"),

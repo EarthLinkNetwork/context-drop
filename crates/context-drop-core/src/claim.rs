@@ -85,6 +85,28 @@ pub struct ClaimContext {
     pub project_root: String,
     pub project_name: String,
     pub config_dir: Option<String>,
+    /// The user's instruction given with the pull (e.g. "原因を調べて直して"),
+    /// shown in the desktop dispatch history. Never packet content.
+    pub note: Option<String>,
+    /// Which terminal tab/pane ran the claim (e.g. "iTerm2 w0t2p0"), so two
+    /// sessions on the same project can be told apart.
+    pub terminal: Option<String>,
+}
+
+/// Longest stored claim note / terminal label, in characters.
+pub const MAX_CLAIM_NOTE_CHARS: usize = 500;
+
+/// Trim, drop control characters (newlines become spaces), cap the length,
+/// and map an empty result to `None`.
+fn clean_label(s: Option<&str>) -> Option<String> {
+    let s = s?;
+    let cleaned: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(MAX_CLAIM_NOTE_CHARS)
+        .collect();
+    let trimmed = cleaned.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// Metadata-only result of a successful claim (never any raw content).
@@ -114,7 +136,7 @@ pub struct PacketSummary {
     pub updated_at_ms: i64,
 }
 
-/// Information about the most recent dispatch (claim).
+/// Information about one dispatch (claim). Metadata only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LastDispatch {
     pub packet_id: String,
@@ -123,6 +145,14 @@ pub struct LastDispatch {
     pub item_count: i64,
     pub claimed_at_ms: i64,
     pub packet_state: PacketState,
+    pub cwd: String,
+    pub config_dir: Option<String>,
+    pub note: Option<String>,
+    pub terminal: Option<String>,
+    /// This claim's own status (`active` / `released` / `consumed`). A packet
+    /// re-claimed after an undo shows its NEW claim's state in `packet_state`,
+    /// so the released claim is told apart by this.
+    pub claim_status: String,
 }
 
 /// A high-level status snapshot for the CLI/desktop.
@@ -450,8 +480,8 @@ pub fn claim(db: &mut Db, storage: &Storage, ctx: &ClaimContext) -> Result<Claim
                 tx.execute(
                     "INSERT INTO claims
                         (id, packet_id, session_id, cwd, project_root, project_name,
-                         config_dir, claimed_at_ms, released_at_ms, status)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 'active')",
+                         config_dir, claimed_at_ms, released_at_ms, status, note, terminal)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 'active', ?9, ?10)",
                     params![
                         claim_id,
                         pid,
@@ -461,6 +491,8 @@ pub fn claim(db: &mut Db, storage: &Storage, ctx: &ClaimContext) -> Result<Claim
                         ctx.project_name,
                         ctx.config_dir,
                         now,
+                        clean_label(ctx.note.as_deref()),
+                        clean_label(ctx.terminal.as_deref()),
                     ],
                 )?;
                 tx.commit()?;
@@ -752,7 +784,7 @@ pub fn undo(
                    AND c.status = 'active'
                    AND c.claimed_at_ms >= ?2
                    AND p.state IN ('CLAIMED','PROCESSING')
-                 ORDER BY c.claimed_at_ms DESC LIMIT 1",
+                 ORDER BY c.claimed_at_ms DESC, c.rowid DESC LIMIT 1",
                 params![session_id, cutoff],
                 |r| r.get(0),
             )
@@ -779,7 +811,7 @@ pub fn undo(
     let project_name: String = db
         .conn
         .query_row(
-            "SELECT project_name FROM claims WHERE packet_id=?1 ORDER BY claimed_at_ms DESC LIMIT 1",
+            "SELECT project_name FROM claims WHERE packet_id=?1 ORDER BY claimed_at_ms DESC, rowid DESC LIMIT 1",
             params![packet_id],
             |r| r.get(0),
         )
@@ -810,7 +842,7 @@ pub fn undo_last_dispatch(db: &mut Db, storage: &Storage, window_ms: i64) -> Res
             .query_row(
                 "SELECT c.id, c.packet_id, c.project_name, c.claimed_at_ms, p.state
                  FROM claims c JOIN packets p ON p.id = c.packet_id
-                 ORDER BY c.claimed_at_ms DESC LIMIT 1",
+                 ORDER BY c.claimed_at_ms DESC, c.rowid DESC LIMIT 1",
                 [],
                 |r| {
                     Ok((
@@ -888,41 +920,77 @@ pub fn status(db: &Db) -> Result<StatusReport> {
     })
 }
 
+/// Attach (or replace) the note on one of this session's claims — the user's
+/// pull instruction, recorded after an automatic claim that could not receive
+/// it. Returns false when no such claim belongs to `session_id`.
+pub fn set_claim_note(db: &mut Db, claim_id: &str, session_id: &str, note: &str) -> Result<bool> {
+    let changed = db.conn.execute(
+        "UPDATE claims SET note = ?1 WHERE id = ?2 AND session_id = ?3",
+        params![clean_label(Some(note)), claim_id, session_id],
+    )?;
+    Ok(changed == 1)
+}
+
 /// The most recent dispatch (claim), if any.
 pub fn last_dispatch(db: &Db) -> Result<Option<LastDispatch>> {
-    let row = db
-        .conn
-        .query_row(
-            "SELECT c.packet_id, c.project_name, c.session_id, c.claimed_at_ms, p.state
-             FROM claims c JOIN packets p ON p.id = c.packet_id
-             ORDER BY c.claimed_at_ms DESC LIMIT 1",
-            [],
-            |r| {
-                let state_str: String = r.get(4)?;
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, i64>(3)?,
-                    state_str,
-                ))
-            },
-        )
-        .optional()?;
-    match row {
-        None => Ok(None),
-        Some((packet_id, project_name, session_id, claimed_at_ms, state_str)) => {
-            let item_count = count_items(&db.conn, &packet_id)?;
-            Ok(Some(LastDispatch {
+    Ok(recent_dispatches(db, 1)?.into_iter().next())
+}
+
+/// The most recent dispatches (claims), newest first, capped at `limit`.
+pub fn recent_dispatches(db: &Db, limit: usize) -> Result<Vec<LastDispatch>> {
+    let mut stmt = db.conn.prepare(
+        "SELECT c.packet_id, c.project_name, c.session_id, c.claimed_at_ms, p.state,
+                c.cwd, c.config_dir, c.note, c.terminal, c.status
+         FROM claims c JOIN packets p ON p.id = c.packet_id
+         ORDER BY c.claimed_at_ms DESC, c.rowid DESC LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![limit as i64], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<String>>(7)?,
+                r.get::<_, Option<String>>(8)?,
+                r.get::<_, String>(9)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    rows.into_iter()
+        .map(
+            |(
                 packet_id,
                 project_name,
                 session_id,
-                item_count,
                 claimed_at_ms,
-                packet_state: PacketState::parse(&state_str).unwrap_or(PacketState::Failed),
-            }))
-        }
-    }
+                state_str,
+                cwd,
+                config_dir,
+                note,
+                terminal,
+                claim_status,
+            )| {
+                let item_count = count_items(&db.conn, &packet_id)?;
+                Ok(LastDispatch {
+                    packet_id,
+                    project_name,
+                    session_id,
+                    item_count,
+                    claimed_at_ms,
+                    packet_state: PacketState::parse(&state_str).unwrap_or(PacketState::Failed),
+                    cwd,
+                    config_dir,
+                    note,
+                    terminal,
+                    claim_status,
+                })
+            },
+        )
+        .collect()
 }
 
 /// The most recent items of a packet (metadata only), newest last, capped at
@@ -1026,7 +1094,7 @@ fn active_claim_is_owned(
         .query_row(
             "SELECT id, session_id FROM claims
              WHERE packet_id = ?1 AND status = 'active'
-             ORDER BY claimed_at_ms DESC LIMIT 1",
+             ORDER BY claimed_at_ms DESC, rowid DESC LIMIT 1",
             params![packet_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -1077,4 +1145,81 @@ fn transition_locked(
         return Err(CoreError::StateChanged { expected, actual });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::DEFAULT_UNDO_WINDOW_MS;
+
+    fn ctx(session: &str) -> ClaimContext {
+        ClaimContext {
+            session_id: Some(session.into()),
+            cwd: "/r".into(),
+            project_root: "/r".into(),
+            project_name: "r".into(),
+            config_dir: None,
+            note: None,
+            terminal: None,
+        }
+    }
+
+    fn one_item_draft(db: &mut Db, storage: &Storage, text: &str) -> String {
+        let id = create_draft(db, storage).unwrap();
+        let bytes = text.as_bytes().to_vec();
+        let items = vec![CapturedItem {
+            kind: ItemKind::Text,
+            mime_type: "text/plain".into(),
+            ext: "txt".into(),
+            bytes,
+        }];
+        let snap = CapturedSnapshot {
+            snapshot_sha256: snapshot_content_hash(&items),
+            items,
+        };
+        append_snapshot(db, storage, &id, &snap, &Limits::default()).unwrap();
+        id
+    }
+
+    #[test]
+    fn same_millisecond_claims_undo_the_one_shown_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::at(dir.path());
+        storage.ensure_layout().unwrap();
+        let mut db = Db::open(storage.db_path()).unwrap();
+        one_item_draft(&mut db, &storage, "a");
+        claim(&mut db, &storage, &ctx("A")).unwrap();
+        one_item_draft(&mut db, &storage, "b");
+        claim(&mut db, &storage, &ctx("B")).unwrap();
+        // Force a tie on the timestamp, as two concurrent claims can produce.
+        db.conn
+            .execute("UPDATE claims SET claimed_at_ms = ?1", params![now_ms()])
+            .unwrap();
+        let shown = recent_dispatches(&db, 10).unwrap();
+        assert_eq!(shown[0].session_id, "B");
+        let undone = undo_last_dispatch(&mut db, &storage, DEFAULT_UNDO_WINDOW_MS).unwrap();
+        assert_eq!(undone.packet_id, shown[0].packet_id);
+    }
+
+    #[test]
+    fn a_released_claim_keeps_its_own_status_after_a_reclaim() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::at(dir.path());
+        storage.ensure_layout().unwrap();
+        let mut db = Db::open(storage.db_path()).unwrap();
+        one_item_draft(&mut db, &storage, "a");
+        claim(&mut db, &storage, &ctx("A")).unwrap();
+        undo_last_dispatch(&mut db, &storage, DEFAULT_UNDO_WINDOW_MS).unwrap();
+        claim(&mut db, &storage, &ctx("B")).unwrap();
+        let shown = recent_dispatches(&db, 10).unwrap();
+        assert_eq!(shown.len(), 2);
+        assert_eq!(
+            (shown[0].session_id.as_str(), shown[0].claim_status.as_str()),
+            ("B", "active")
+        );
+        assert_eq!(
+            (shown[1].session_id.as_str(), shown[1].claim_status.as_str()),
+            ("A", "released")
+        );
+    }
 }
