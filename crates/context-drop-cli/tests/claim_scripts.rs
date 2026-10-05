@@ -142,3 +142,39 @@ fn claim_ps1_claims_and_marks_processing() {
         assert!(stdout.contains("NO_PACKET"), "{shell}: {stdout}");
     }
 }
+
+/// The pull skill's Step 1b: claim (terminal recorded from the env), then
+/// `note --claim-id <id> -- '<instruction>'` — including an instruction that
+/// starts with `-` — and `status --json` reports both.
+#[test]
+fn note_after_claim_is_recorded_even_when_it_starts_with_a_dash() {
+    let (_tmp, data, packet_id) = setup();
+    let cli = |args: &[&str]| {
+        let out = Command::new(BIN)
+            .args(args)
+            .env("CONTEXT_DROP_DATA_DIR", &data)
+            .env("CLAUDE_CODE_SESSION_ID", "sess-note")
+            .env("ITERM_SESSION_ID", "w1t3p0:ABCDEF")
+            .env_remove("TMUX_PANE")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?} failed: {out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let claimed: serde_json::Value =
+        serde_json::from_str(cli(&["claim", "--json"]).trim()).unwrap();
+    assert_eq!(claimed["packetId"], packet_id.as_str());
+    let claim_id = claimed["claimId"].as_str().unwrap().to_string();
+
+    cli(&[
+        "note",
+        "--claim-id",
+        &claim_id,
+        "--",
+        "- 原因を調べて --help",
+    ]);
+
+    let status: serde_json::Value = serde_json::from_str(&cli(&["status", "--json"])).unwrap();
+    assert_eq!(status["lastDispatch"]["note"], "- 原因を調べて --help");
+    assert_eq!(status["lastDispatch"]["terminal"], "iTerm2 w1t3p0");
+}

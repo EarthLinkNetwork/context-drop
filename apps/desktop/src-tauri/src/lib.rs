@@ -128,7 +128,13 @@ impl From<&context_drop_core::LastDispatch> for LastDispatchInfo {
             project_name: l.project_name.clone(),
             item_count: l.item_count,
             claimed_at: context_drop_core::clock::ms_to_rfc3339(l.claimed_at_ms),
-            state: l.packet_state.as_str().to_string(),
+            // A claim undone (and maybe re-claimed by another session) shows as
+            // RELEASED rather than the packet's current state.
+            state: if l.claim_status == "released" {
+                "RELEASED".to_string()
+            } else {
+                l.packet_state.as_str().to_string()
+            },
             session_id: l.session_id.clone(),
             cwd: l.cwd.clone(),
             config_dir: l.config_dir.clone(),

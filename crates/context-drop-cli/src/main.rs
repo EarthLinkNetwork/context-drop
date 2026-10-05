@@ -90,7 +90,9 @@ enum Command {
         /// Session id (defaults to $CLAUDE_CODE_SESSION_ID).
         #[arg(long)]
         session_id: Option<String>,
-        /// The note text (trimmed to one line, at most 500 characters).
+        /// The note text (trimmed to one line, at most 500 characters). Pass it
+        /// after `--` so text starting with `-` is not read as an option.
+        #[arg(allow_hyphen_values = true)]
         text: String,
     },
     /// Release a packet back to READY (routing undone; no code rollback).

@@ -149,6 +149,10 @@ pub struct LastDispatch {
     pub config_dir: Option<String>,
     pub note: Option<String>,
     pub terminal: Option<String>,
+    /// This claim's own status (`active` / `released` / `consumed`). A packet
+    /// re-claimed after an undo shows its NEW claim's state in `packet_state`,
+    /// so the released claim is told apart by this.
+    pub claim_status: String,
 }
 
 /// A high-level status snapshot for the CLI/desktop.
@@ -780,7 +784,7 @@ pub fn undo(
                    AND c.status = 'active'
                    AND c.claimed_at_ms >= ?2
                    AND p.state IN ('CLAIMED','PROCESSING')
-                 ORDER BY c.claimed_at_ms DESC LIMIT 1",
+                 ORDER BY c.claimed_at_ms DESC, c.rowid DESC LIMIT 1",
                 params![session_id, cutoff],
                 |r| r.get(0),
             )
@@ -807,7 +811,7 @@ pub fn undo(
     let project_name: String = db
         .conn
         .query_row(
-            "SELECT project_name FROM claims WHERE packet_id=?1 ORDER BY claimed_at_ms DESC LIMIT 1",
+            "SELECT project_name FROM claims WHERE packet_id=?1 ORDER BY claimed_at_ms DESC, rowid DESC LIMIT 1",
             params![packet_id],
             |r| r.get(0),
         )
@@ -838,7 +842,7 @@ pub fn undo_last_dispatch(db: &mut Db, storage: &Storage, window_ms: i64) -> Res
             .query_row(
                 "SELECT c.id, c.packet_id, c.project_name, c.claimed_at_ms, p.state
                  FROM claims c JOIN packets p ON p.id = c.packet_id
-                 ORDER BY c.claimed_at_ms DESC LIMIT 1",
+                 ORDER BY c.claimed_at_ms DESC, c.rowid DESC LIMIT 1",
                 [],
                 |r| {
                     Ok((
@@ -936,7 +940,7 @@ pub fn last_dispatch(db: &Db) -> Result<Option<LastDispatch>> {
 pub fn recent_dispatches(db: &Db, limit: usize) -> Result<Vec<LastDispatch>> {
     let mut stmt = db.conn.prepare(
         "SELECT c.packet_id, c.project_name, c.session_id, c.claimed_at_ms, p.state,
-                c.cwd, c.config_dir, c.note, c.terminal
+                c.cwd, c.config_dir, c.note, c.terminal, c.status
          FROM claims c JOIN packets p ON p.id = c.packet_id
          ORDER BY c.claimed_at_ms DESC, c.rowid DESC LIMIT ?1",
     )?;
@@ -952,6 +956,7 @@ pub fn recent_dispatches(db: &Db, limit: usize) -> Result<Vec<LastDispatch>> {
                 r.get::<_, Option<String>>(6)?,
                 r.get::<_, Option<String>>(7)?,
                 r.get::<_, Option<String>>(8)?,
+                r.get::<_, String>(9)?,
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -967,6 +972,7 @@ pub fn recent_dispatches(db: &Db, limit: usize) -> Result<Vec<LastDispatch>> {
                 config_dir,
                 note,
                 terminal,
+                claim_status,
             )| {
                 let item_count = count_items(&db.conn, &packet_id)?;
                 Ok(LastDispatch {
@@ -980,6 +986,7 @@ pub fn recent_dispatches(db: &Db, limit: usize) -> Result<Vec<LastDispatch>> {
                     config_dir,
                     note,
                     terminal,
+                    claim_status,
                 })
             },
         )
@@ -1087,7 +1094,7 @@ fn active_claim_is_owned(
         .query_row(
             "SELECT id, session_id FROM claims
              WHERE packet_id = ?1 AND status = 'active'
-             ORDER BY claimed_at_ms DESC LIMIT 1",
+             ORDER BY claimed_at_ms DESC, rowid DESC LIMIT 1",
             params![packet_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -1138,4 +1145,81 @@ fn transition_locked(
         return Err(CoreError::StateChanged { expected, actual });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::DEFAULT_UNDO_WINDOW_MS;
+
+    fn ctx(session: &str) -> ClaimContext {
+        ClaimContext {
+            session_id: Some(session.into()),
+            cwd: "/r".into(),
+            project_root: "/r".into(),
+            project_name: "r".into(),
+            config_dir: None,
+            note: None,
+            terminal: None,
+        }
+    }
+
+    fn one_item_draft(db: &mut Db, storage: &Storage, text: &str) -> String {
+        let id = create_draft(db, storage).unwrap();
+        let bytes = text.as_bytes().to_vec();
+        let items = vec![CapturedItem {
+            kind: ItemKind::Text,
+            mime_type: "text/plain".into(),
+            ext: "txt".into(),
+            bytes,
+        }];
+        let snap = CapturedSnapshot {
+            snapshot_sha256: snapshot_content_hash(&items),
+            items,
+        };
+        append_snapshot(db, storage, &id, &snap, &Limits::default()).unwrap();
+        id
+    }
+
+    #[test]
+    fn same_millisecond_claims_undo_the_one_shown_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::at(dir.path());
+        storage.ensure_layout().unwrap();
+        let mut db = Db::open(storage.db_path()).unwrap();
+        one_item_draft(&mut db, &storage, "a");
+        claim(&mut db, &storage, &ctx("A")).unwrap();
+        one_item_draft(&mut db, &storage, "b");
+        claim(&mut db, &storage, &ctx("B")).unwrap();
+        // Force a tie on the timestamp, as two concurrent claims can produce.
+        db.conn
+            .execute("UPDATE claims SET claimed_at_ms = ?1", params![now_ms()])
+            .unwrap();
+        let shown = recent_dispatches(&db, 10).unwrap();
+        assert_eq!(shown[0].session_id, "B");
+        let undone = undo_last_dispatch(&mut db, &storage, DEFAULT_UNDO_WINDOW_MS).unwrap();
+        assert_eq!(undone.packet_id, shown[0].packet_id);
+    }
+
+    #[test]
+    fn a_released_claim_keeps_its_own_status_after_a_reclaim() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::at(dir.path());
+        storage.ensure_layout().unwrap();
+        let mut db = Db::open(storage.db_path()).unwrap();
+        one_item_draft(&mut db, &storage, "a");
+        claim(&mut db, &storage, &ctx("A")).unwrap();
+        undo_last_dispatch(&mut db, &storage, DEFAULT_UNDO_WINDOW_MS).unwrap();
+        claim(&mut db, &storage, &ctx("B")).unwrap();
+        let shown = recent_dispatches(&db, 10).unwrap();
+        assert_eq!(shown.len(), 2);
+        assert_eq!(
+            (shown[0].session_id.as_str(), shown[0].claim_status.as_str()),
+            ("B", "active")
+        );
+        assert_eq!(
+            (shown[1].session_id.as_str(), shown[1].claim_status.as_str()),
+            ("A", "released")
+        );
+    }
 }

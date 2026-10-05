@@ -80,10 +80,10 @@ single quotes, writing any `'` inside it as `'\''`; use `investigate this`
 when the instruction is empty:
 
 ```bash
-# macOS / Linux / Git Bash / cmd
-"<CONTEXT_DROP_BIN>" note --claim-id <claimId> '<user instruction>'
-# PowerShell (a quoted path needs the call operator &; write ' inside as '')
-& "<CONTEXT_DROP_BIN>" note --claim-id <claimId> '<user instruction>'
+# macOS / Linux / Git Bash
+"<CONTEXT_DROP_BIN>" note --claim-id <claimId> -- '<user instruction>'
+# Windows: use PowerShell (a quoted path needs the call operator &; write ' inside as '')
+& "<CONTEXT_DROP_BIN>" note --claim-id <claimId> -- '<user instruction>'
 ```
 
 This is a label only (metadata, never packet content). If it fails, continue —

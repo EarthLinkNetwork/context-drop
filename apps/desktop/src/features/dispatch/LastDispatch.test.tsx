@@ -44,6 +44,14 @@ describe("LastDispatch", () => {
     expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
   });
 
+  it("shows an undone claim as RELEASED without Undo", () => {
+    render(
+      <LastDispatch dispatches={[{ ...base, state: "RELEASED" }]} busy={false} onUndo={vi.fn()} />,
+    );
+    expect(screen.getByText("RELEASED")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+  });
+
   it("lists every dispatch newest first, offering Undo only on the newest", () => {
     const list = Array.from({ length: 10 }, (_, i) => ({
       ...base,

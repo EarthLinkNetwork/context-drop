@@ -316,7 +316,7 @@ pub(crate) fn latest_claim_meta(conn: &Connection, packet_id: &str) -> Result<Op
         .query_row(
             "SELECT session_id, cwd, project_root, project_name, config_dir, claimed_at_ms
              FROM claims WHERE packet_id = ?1
-             ORDER BY claimed_at_ms DESC LIMIT 1",
+             ORDER BY claimed_at_ms DESC, rowid DESC LIMIT 1",
             params![packet_id],
             |row| {
                 let claimed_at_ms: i64 = row.get("claimed_at_ms")?;
@@ -365,6 +365,49 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM migrations", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, SCHEMA_VERSION as i64);
+    }
+
+    #[test]
+    fn concurrent_opens_of_a_v1_database_migrate_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            Db::configure(&conn).unwrap();
+            let mut db = Db { conn };
+            db.apply_v1().unwrap();
+        }
+        // The app and a CLI (or two CLIs) opening the old DB at once must all
+        // succeed; only one of them may add the v2 columns.
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || Db::open(&path).map(|db| db.schema_version().unwrap()))
+            })
+            .collect();
+        for h in handles {
+            assert_eq!(h.join().unwrap().unwrap(), 2);
+        }
+        let db = Db::open(&path).unwrap();
+        let v2_rows: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM migrations WHERE version = 2",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v2_rows, 1);
+        // A v1-era writer (no note/terminal columns named) still inserts fine.
+        db.conn
+            .execute_batch(
+                "INSERT INTO packets(id, state, created_at_ms, updated_at_ms, total_bytes)
+                 VALUES ('p9', 'CLAIMED', 1, 1, 0);
+                 INSERT INTO claims(id, packet_id, session_id, cwd, project_root, project_name,
+                                    config_dir, claimed_at_ms, released_at_ms, status)
+                 VALUES ('c9', 'p9', 's', '/r', '/r', 'r', NULL, 1, NULL, 'active');",
+            )
+            .unwrap();
     }
 
     #[test]
