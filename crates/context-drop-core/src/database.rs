@@ -408,6 +408,9 @@ mod tests {
                  VALUES ('c9', 'p9', 's', '/r', '/r', 'r', NULL, 1, NULL, 'active');",
             )
             .unwrap();
+        // ...and a v1-era reader (the latest_claim_meta query) still reads it.
+        let meta = latest_claim_meta(&db.conn, "p9").unwrap().unwrap();
+        assert_eq!(meta.session_id, "s");
     }
 
     #[test]
