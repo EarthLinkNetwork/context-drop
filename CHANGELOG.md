@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-05
+
+### Changed
+
+- **Recent Dispatches scrolls inside its panel** (about three entries tall)
+  instead of making the whole window scroll, so a long Current Packet and the
+  dispatch history stay easy to read together.
+
 ## [0.1.6] - 2026-10-05
 
 ### Added
