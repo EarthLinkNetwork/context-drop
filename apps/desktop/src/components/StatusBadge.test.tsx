@@ -15,4 +15,14 @@ describe("StatusBadge", () => {
     expect(screen.getByText("●")).toBeInTheDocument();
     expect(screen.getByTestId("badge-count")).toHaveTextContent("5");
   });
+
+  it("shows the app version when given", () => {
+    render(<StatusBadge capturing={false} itemCount={0} version="0.1.6" />);
+    expect(screen.getByTestId("app-version")).toHaveTextContent("v0.1.6");
+  });
+
+  it("omits the version until it is known", () => {
+    render(<StatusBadge capturing={false} itemCount={0} />);
+    expect(screen.queryByTestId("app-version")).not.toBeInTheDocument();
+  });
 });

@@ -8,6 +8,7 @@ import { App } from "./App";
 const mocks = vi.hoisted(() => ({
   getSnapshot: vi.fn(),
   startCapture: vi.fn(),
+  captureClipboardNow: vi.fn(),
   stopCapture: vi.fn(),
   clearPacket: vi.fn(),
   undoLast: vi.fn(),
@@ -39,6 +40,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     integrations: [],
     marketplaceGithub: "EarthLinkNetwork/context-drop",
     notice: null,
+    appVersion: "9.9.9",
     ...overrides,
   };
 }
@@ -46,6 +48,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.startCapture.mockResolvedValue(undefined);
+  mocks.captureClipboardNow.mockResolvedValue(undefined);
   mocks.stopCapture.mockResolvedValue(undefined);
 });
 
@@ -78,6 +81,21 @@ describe("App", () => {
     const start = await screen.findByRole("button", { name: "Start Capture" });
     await userEvent.click(start);
     await waitFor(() => expect(mocks.startCapture).toHaveBeenCalledOnce());
+  });
+
+  it("captures the clipboard once without starting capture", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot({ capturing: false }));
+    render(<App />);
+    const now = await screen.findByRole("button", { name: "Capture Clipboard Now" });
+    await userEvent.click(now);
+    await waitFor(() => expect(mocks.captureClipboardNow).toHaveBeenCalledOnce());
+    expect(mocks.startCapture).not.toHaveBeenCalled();
+  });
+
+  it("shows the running app version in the header", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot());
+    render(<App />);
+    expect(await screen.findByTestId("app-version")).toHaveTextContent("v9.9.9");
   });
 
   it("shows an error state and recovers on Retry", async () => {

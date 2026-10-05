@@ -61,6 +61,8 @@ export interface AppSnapshot {
   marketplaceGithub: string;
   /** A transient notice from the backend (e.g. an item rejected for size). */
   notice: string | null;
+  /** The running app's version (e.g. "0.1.6"). */
+  appVersion: string;
 }
 
 // ---- Command surface ----------------------------------------------------
@@ -72,6 +74,7 @@ export interface AppSnapshot {
 export const api = {
   getSnapshot: () => invoke<AppSnapshot>("get_snapshot"),
   startCapture: () => invoke<void>("start_capture"),
+  captureClipboardNow: () => invoke<void>("capture_clipboard_now"),
   stopCapture: () => invoke<void>("stop_capture"),
   clearPacket: () => invoke<void>("clear_packet"),
   undoLast: () => invoke<string>("undo_last"),
