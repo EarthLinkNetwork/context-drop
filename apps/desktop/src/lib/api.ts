@@ -26,6 +26,13 @@ export interface LastDispatchInfo {
   itemCount: number;
   claimedAt: string;
   state: string;
+  sessionId: string;
+  cwd: string;
+  configDir: string | null;
+  /** The user's pull instruction, recorded by the plugin. */
+  note: string | null;
+  /** Terminal tab/pane label, e.g. "iTerm2 w0t2p0". */
+  terminal: string | null;
 }
 
 export interface IntegrationStatus {
@@ -54,6 +61,8 @@ export interface AppSnapshot {
   shortcutRegistered: boolean;
   currentDraft: CurrentDraft | null;
   lastDispatch: LastDispatchInfo | null;
+  /** Recent dispatches, newest first (up to 10). */
+  recentDispatches: LastDispatchInfo[];
   readyCount: number;
   settings: Settings;
   integrations: IntegrationStatus[];

@@ -33,6 +33,8 @@ use context_drop_clipboard::{ClipboardProvider, Payload, Watcher};
 const POLL_INTERVAL: Duration = Duration::from_millis(350);
 const TRAY_ID: &str = "main";
 const RECENT_ITEMS: usize = 8;
+/// How many past dispatches the desktop lists (newest first).
+const RECENT_DISPATCHES: usize = 10;
 
 /// Shared application state. Fields the capture thread needs are `Arc`s so they
 /// can be cloned into the thread; the rest are accessed via the Tauri `State`.
@@ -110,6 +112,30 @@ struct LastDispatchInfo {
     item_count: i64,
     claimed_at: String,
     state: String,
+    session_id: String,
+    cwd: String,
+    config_dir: Option<String>,
+    /// The user's pull instruction (recorded by the plugin), if any.
+    note: Option<String>,
+    /// Terminal tab/pane label (e.g. "iTerm2 w0t2p0"), if known.
+    terminal: Option<String>,
+}
+
+impl From<&context_drop_core::LastDispatch> for LastDispatchInfo {
+    fn from(l: &context_drop_core::LastDispatch) -> Self {
+        LastDispatchInfo {
+            packet_id: l.packet_id.clone(),
+            project_name: l.project_name.clone(),
+            item_count: l.item_count,
+            claimed_at: context_drop_core::clock::ms_to_rfc3339(l.claimed_at_ms),
+            state: l.packet_state.as_str().to_string(),
+            session_id: l.session_id.clone(),
+            cwd: l.cwd.clone(),
+            config_dir: l.config_dir.clone(),
+            note: l.note.clone(),
+            terminal: l.terminal.clone(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -132,6 +158,8 @@ struct AppSnapshot {
     shortcut_registered: bool,
     current_draft: Option<CurrentDraft>,
     last_dispatch: Option<LastDispatchInfo>,
+    /// The most recent dispatches, newest first (capped at RECENT_DISPATCHES).
+    recent_dispatches: Vec<LastDispatchInfo>,
     ready_count: i64,
     settings: Settings,
     integrations: Vec<IntegrationStatus>,
@@ -245,13 +273,12 @@ fn build_snapshot(app: &AppHandle) -> Result<AppSnapshot, String> {
         None => None,
     };
 
-    let last_dispatch = report.last_dispatch.as_ref().map(|l| LastDispatchInfo {
-        packet_id: l.packet_id.clone(),
-        project_name: l.project_name.clone(),
-        item_count: l.item_count,
-        claimed_at: context_drop_core::clock::ms_to_rfc3339(l.claimed_at_ms),
-        state: l.packet_state.as_str().to_string(),
-    });
+    let last_dispatch = report.last_dispatch.as_ref().map(LastDispatchInfo::from);
+    let recent_dispatches = context_drop_core::recent_dispatches(&db, RECENT_DISPATCHES)
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(LastDispatchInfo::from)
+        .collect();
 
     let settings = db.load_settings().map_err(|e| e.to_string())?;
     let integrations = integration::detect_config_dirs()
@@ -279,6 +306,7 @@ fn build_snapshot(app: &AppHandle) -> Result<AppSnapshot, String> {
         shortcut_registered,
         current_draft,
         last_dispatch,
+        recent_dispatches,
         ready_count: report.ready_count,
         settings,
         integrations,
@@ -1136,7 +1164,8 @@ fn open_data_folder(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn privacy_info() -> String {
     "Context Drop is local-only: no telemetry, analytics, or cloud backend, and it transmits \
-     nothing over the network. Clipboard items are captured only while Capture is ON. The only \
+     nothing over the network. The clipboard is watched only while Capture is ON (or read once \
+     when you press Capture Clipboard Now). The only \
      time packet content leaves your machine is when Claude Code itself sends it to its configured \
      model provider as the isolated subagent reads it."
         .to_string()

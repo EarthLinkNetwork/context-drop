@@ -126,7 +126,7 @@ export function App() {
         />
 
         <LastDispatch
-          dispatch={snap.lastDispatch}
+          dispatches={snap.recentDispatches}
           busy={state.busy}
           onUndo={() => void state.undoLast()}
         />

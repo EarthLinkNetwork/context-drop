@@ -28,6 +28,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     shortcutRegistered: true,
     currentDraft: null,
     lastDispatch: null,
+    recentDispatches: [],
     readyCount: 0,
     settings: {
       globalShortcut: "CommandOrControl+Shift+9",
@@ -124,7 +125,7 @@ describe("App", () => {
     // Capture tab is the default: capture control + Last Dispatch are visible,
     // the settings form is not.
     expect(await screen.findByRole("button", { name: "Start Capture" })).toBeInTheDocument();
-    expect(screen.getByText("Last Dispatch")).toBeInTheDocument();
+    expect(screen.getByText("Recent Dispatches")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save Settings" })).not.toBeInTheDocument();
     // Switch to Settings: the setup + settings form appear, capture control hides.
     await userEvent.click(screen.getByRole("tab", { name: "Settings" }));

@@ -16,6 +16,8 @@ fn ctx(session: &str) -> ClaimContext {
         project_root: "/repo/demo".into(),
         project_name: "demo".into(),
         config_dir: Some("/home/u/.claude".into()),
+        note: None,
+        terminal: None,
     }
 }
 

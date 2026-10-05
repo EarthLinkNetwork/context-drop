@@ -85,6 +85,28 @@ pub struct ClaimContext {
     pub project_root: String,
     pub project_name: String,
     pub config_dir: Option<String>,
+    /// The user's instruction given with the pull (e.g. "原因を調べて直して"),
+    /// shown in the desktop dispatch history. Never packet content.
+    pub note: Option<String>,
+    /// Which terminal tab/pane ran the claim (e.g. "iTerm2 w0t2p0"), so two
+    /// sessions on the same project can be told apart.
+    pub terminal: Option<String>,
+}
+
+/// Longest stored claim note / terminal label, in characters.
+pub const MAX_CLAIM_NOTE_CHARS: usize = 500;
+
+/// Trim, drop control characters (newlines become spaces), cap the length,
+/// and map an empty result to `None`.
+fn clean_label(s: Option<&str>) -> Option<String> {
+    let s = s?;
+    let cleaned: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(MAX_CLAIM_NOTE_CHARS)
+        .collect();
+    let trimmed = cleaned.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// Metadata-only result of a successful claim (never any raw content).
@@ -114,7 +136,7 @@ pub struct PacketSummary {
     pub updated_at_ms: i64,
 }
 
-/// Information about the most recent dispatch (claim).
+/// Information about one dispatch (claim). Metadata only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LastDispatch {
     pub packet_id: String,
@@ -123,6 +145,10 @@ pub struct LastDispatch {
     pub item_count: i64,
     pub claimed_at_ms: i64,
     pub packet_state: PacketState,
+    pub cwd: String,
+    pub config_dir: Option<String>,
+    pub note: Option<String>,
+    pub terminal: Option<String>,
 }
 
 /// A high-level status snapshot for the CLI/desktop.
@@ -450,8 +476,8 @@ pub fn claim(db: &mut Db, storage: &Storage, ctx: &ClaimContext) -> Result<Claim
                 tx.execute(
                     "INSERT INTO claims
                         (id, packet_id, session_id, cwd, project_root, project_name,
-                         config_dir, claimed_at_ms, released_at_ms, status)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 'active')",
+                         config_dir, claimed_at_ms, released_at_ms, status, note, terminal)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 'active', ?9, ?10)",
                     params![
                         claim_id,
                         pid,
@@ -461,6 +487,8 @@ pub fn claim(db: &mut Db, storage: &Storage, ctx: &ClaimContext) -> Result<Claim
                         ctx.project_name,
                         ctx.config_dir,
                         now,
+                        clean_label(ctx.note.as_deref()),
+                        clean_label(ctx.terminal.as_deref()),
                     ],
                 )?;
                 tx.commit()?;
@@ -888,41 +916,74 @@ pub fn status(db: &Db) -> Result<StatusReport> {
     })
 }
 
+/// Attach (or replace) the note on one of this session's claims — the user's
+/// pull instruction, recorded after an automatic claim that could not receive
+/// it. Returns false when no such claim belongs to `session_id`.
+pub fn set_claim_note(db: &mut Db, claim_id: &str, session_id: &str, note: &str) -> Result<bool> {
+    let changed = db.conn.execute(
+        "UPDATE claims SET note = ?1 WHERE id = ?2 AND session_id = ?3",
+        params![clean_label(Some(note)), claim_id, session_id],
+    )?;
+    Ok(changed == 1)
+}
+
 /// The most recent dispatch (claim), if any.
 pub fn last_dispatch(db: &Db) -> Result<Option<LastDispatch>> {
-    let row = db
-        .conn
-        .query_row(
-            "SELECT c.packet_id, c.project_name, c.session_id, c.claimed_at_ms, p.state
-             FROM claims c JOIN packets p ON p.id = c.packet_id
-             ORDER BY c.claimed_at_ms DESC LIMIT 1",
-            [],
-            |r| {
-                let state_str: String = r.get(4)?;
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, i64>(3)?,
-                    state_str,
-                ))
-            },
-        )
-        .optional()?;
-    match row {
-        None => Ok(None),
-        Some((packet_id, project_name, session_id, claimed_at_ms, state_str)) => {
-            let item_count = count_items(&db.conn, &packet_id)?;
-            Ok(Some(LastDispatch {
+    Ok(recent_dispatches(db, 1)?.into_iter().next())
+}
+
+/// The most recent dispatches (claims), newest first, capped at `limit`.
+pub fn recent_dispatches(db: &Db, limit: usize) -> Result<Vec<LastDispatch>> {
+    let mut stmt = db.conn.prepare(
+        "SELECT c.packet_id, c.project_name, c.session_id, c.claimed_at_ms, p.state,
+                c.cwd, c.config_dir, c.note, c.terminal
+         FROM claims c JOIN packets p ON p.id = c.packet_id
+         ORDER BY c.claimed_at_ms DESC, c.rowid DESC LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![limit as i64], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<String>>(7)?,
+                r.get::<_, Option<String>>(8)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    rows.into_iter()
+        .map(
+            |(
                 packet_id,
                 project_name,
                 session_id,
-                item_count,
                 claimed_at_ms,
-                packet_state: PacketState::parse(&state_str).unwrap_or(PacketState::Failed),
-            }))
-        }
-    }
+                state_str,
+                cwd,
+                config_dir,
+                note,
+                terminal,
+            )| {
+                let item_count = count_items(&db.conn, &packet_id)?;
+                Ok(LastDispatch {
+                    packet_id,
+                    project_name,
+                    session_id,
+                    item_count,
+                    claimed_at_ms,
+                    packet_state: PacketState::parse(&state_str).unwrap_or(PacketState::Failed),
+                    cwd,
+                    config_dir,
+                    note,
+                    terminal,
+                })
+            },
+        )
+        .collect()
 }
 
 /// The most recent items of a packet (metadata only), newest last, capped at

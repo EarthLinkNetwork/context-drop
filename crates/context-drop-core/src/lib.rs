@@ -27,10 +27,11 @@ pub mod storage;
 // Curated top-level re-exports for ergonomic use by the CLI and desktop app.
 pub use claim::{
     append_snapshot, claim, clear_packet, consume, create_draft, current_draft_id, delete_item,
-    finalize_capture, get_item, last_dispatch, list, mark_processing, packet_summary, recent_items,
-    refresh_manifest, release, snapshot_content_hash, status, undo, undo_last_dispatch,
-    AppendOutcome, CapturedItem, CapturedSnapshot, ClaimContext, ClaimResult, LastDispatch,
-    PacketSummary, StatusReport, UndoResult,
+    finalize_capture, get_item, last_dispatch, list, mark_processing, packet_summary,
+    recent_dispatches, recent_items, refresh_manifest, release, set_claim_note,
+    snapshot_content_hash, status, undo, undo_last_dispatch, AppendOutcome, CapturedItem,
+    CapturedSnapshot, ClaimContext, ClaimResult, LastDispatch, PacketSummary, StatusReport,
+    UndoResult, MAX_CLAIM_NOTE_CHARS,
 };
 pub use cleanup::{cleanup, is_eligible_for_cleanup, CleanupReport};
 pub use database::{Db, SCHEMA_VERSION};

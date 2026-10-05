@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-05
+
+### Added
+
+- **Capture Clipboard Now.** A button next to Start Capture adds whatever is on
+  the clipboard right now, once — for when you copied something before pressing
+  Start Capture. It does not turn Capture ON; like a drop, it works whether or
+  not Capture is ON.
+- **App version in the header** (`Context Drop v0.1.6`), so you can tell which
+  build is running.
+- **Recent Dispatches.** "Last Dispatch" now lists the last 10 dispatches, each
+  with the pull instruction as a note, the terminal tab (e.g. `iTerm2 w0t2p0`),
+  the Claude Code session id, the account (config dir), and the working
+  directory — so two sessions on the same project can be told apart. Undo stays
+  on the newest one.
+- CLI: `context-drop note --claim-id <id> '<text>'` records the instruction on a
+  claim (the pull skill runs it right after claiming), `claim --note`, and the
+  claim records the terminal tab/pane automatically. `status --json` includes
+  `note` and `terminal`. The database schema moves to v2 (two nullable columns
+  on `claims`; older rows and older apps keep working).
+
 ### Fixed
 
 - After updating the desktop app, `context-drop install-claude` (run via the

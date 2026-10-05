@@ -87,6 +87,8 @@ fn unicode_and_json_fixtures_classify_and_store_byte_exact() {
             project_root: "/repo/demo".into(),
             project_name: "demo".into(),
             config_dir: None,
+            note: None,
+            terminal: None,
         },
     )
     .unwrap();

@@ -12,7 +12,8 @@ export function CapturePanel({ capturing, busy, onStart, onStop, onCaptureNow }:
   return (
     <section className="panel capture-panel">
       <p className="privacy-note">
-        Context Drop captures clipboard items only while Capture is ON.
+        Context Drop watches the clipboard only while Capture is ON. Capture Clipboard Now adds
+        what is on it right now, once.
       </p>
       <p className="drop-hint">
         Or drag &amp; drop files onto this window anytime — no need to copy.

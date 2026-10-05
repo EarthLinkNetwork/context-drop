@@ -71,6 +71,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<this skill's base director
 
 and read its output exactly as above.
 
+## Step 1b — Label this dispatch with the instruction
+
+Right after a successful claim, record the user's instruction on it so the
+desktop app's dispatch history shows what this session was asked to do (and
+two sessions on the same project can be told apart). Put the instruction in
+single quotes, writing any `'` inside it as `'\''`; use `investigate this`
+when the instruction is empty:
+
+```bash
+# macOS / Linux / Git Bash / cmd
+"<CONTEXT_DROP_BIN>" note --claim-id <claimId> '<user instruction>'
+# PowerShell (a quoted path needs the call operator &; write ' inside as '')
+& "<CONTEXT_DROP_BIN>" note --claim-id <claimId> '<user instruction>'
+```
+
+This is a label only (metadata, never packet content). If it fails, continue —
+do not retry or stop.
+
 ## Step 2 — Decide the task mode from the user's instruction
 
 - **ANALYZE** — read-only investigation. Triggers: "原因だけ調べて", "調査してください", "調べて", "まだ修正しないで", "investigate", "what's causing…". The subagent must NOT edit source code.
