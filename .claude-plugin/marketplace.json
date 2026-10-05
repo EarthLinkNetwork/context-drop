@@ -11,7 +11,7 @@
       "name": "context-drop",
       "source": "./integrations/claude-code",
       "description": "Route a captured Context Drop packet into this Claude Code session and process it in an isolated subagent.",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "category": "productivity"
     }
   ]

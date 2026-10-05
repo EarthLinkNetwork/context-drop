@@ -362,6 +362,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* Scroll the history inside the panel (about three entries tall), so ten
+     dispatches never push the whole window into a long page scroll. */
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 .dispatch-entry + .dispatch-entry {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
