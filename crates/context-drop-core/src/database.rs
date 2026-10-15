@@ -219,6 +219,7 @@ impl Db {
                 "maxPacketBytes" => s.max_packet_bytes = v.parse().unwrap_or(s.max_packet_bytes),
                 "autoCleanup" => s.auto_cleanup = v == "true",
                 "shortAliasInstalled" => s.short_alias_installed = v == "true",
+                "autoCheckUpdates" => s.auto_check_updates = v == "true",
                 _ => {}
             }
         }
@@ -241,6 +242,7 @@ impl Db {
             ("maxPacketBytes", s.max_packet_bytes.to_string()),
             ("autoCleanup", s.auto_cleanup.to_string()),
             ("shortAliasInstalled", s.short_alias_installed.to_string()),
+            ("autoCheckUpdates", s.auto_check_updates.to_string()),
         ];
         for (k, v) in pairs {
             self.conn.execute(
@@ -561,6 +563,20 @@ mod tests {
         assert_eq!(loaded.window_display, "DELL U2720Q@1512,0");
         assert!(loaded.always_on_top);
         assert!(loaded.show_on_all_desktops);
+    }
+
+    // Tier A: turning automatic update checks off survives a reload, and a
+    // database from before the setting existed reads as on.
+    #[test]
+    fn auto_check_updates_roundtrip_and_default() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(db.load_settings().unwrap().auto_check_updates);
+        let s = Settings {
+            auto_check_updates: false,
+            ..Settings::default()
+        };
+        db.save_settings(&s).unwrap();
+        assert!(!db.load_settings().unwrap().auto_check_updates);
     }
 
     // Tier A: a cleared (empty = off) shortcut survives a reload for all

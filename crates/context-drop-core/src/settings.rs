@@ -89,6 +89,9 @@ pub struct Settings {
     pub auto_cleanup: bool,
     /// Whether the `/cd` short alias skill has been installed (best-effort flag).
     pub short_alias_installed: bool,
+    /// Check GitHub for a newer release at launch and once a day. Only the
+    /// release manifest is fetched; no packet data is sent.
+    pub auto_check_updates: bool,
 }
 
 impl Default for Settings {
@@ -106,6 +109,7 @@ impl Default for Settings {
             max_packet_bytes: DEFAULT_MAX_PACKET_BYTES,
             auto_cleanup: true,
             short_alias_installed: false,
+            auto_check_updates: true,
         }
     }
 }
@@ -199,6 +203,7 @@ mod tests {
         assert_eq!(s.window_placement, WindowPlacement::Cursor);
         assert!(!s.always_on_top);
         assert!(!s.show_on_all_desktops);
+        assert!(s.auto_check_updates, "update checks are on unless turned off");
     }
 
     // Tier A: settings decoding of the window fields.
@@ -225,6 +230,8 @@ mod tests {
         assert_eq!(s.show_window_shortcut, default_show_window_shortcut());
         assert_eq!(s.on_top_shortcut, default_on_top_shortcut());
         assert_eq!(s.window_placement, WindowPlacement::Cursor);
+        // Users from before the updater start with automatic checks on.
+        assert!(s.auto_check_updates);
     }
 
     #[test]
@@ -297,5 +304,18 @@ mod tests {
         assert!(json.contains(r#""windowPlacement":"cursor""#));
         assert!(json.contains("alwaysOnTop"));
         assert!(json.contains("showOnAllDesktops"));
+        assert!(json.contains(r#""autoCheckUpdates":true"#));
+    }
+
+    // Tier A: the Updates toggle is saved through the same patch path.
+    #[test]
+    fn patch_turns_update_checks_off() {
+        let s = Settings::default()
+            .with_patch(&serde_json::json!({ "autoCheckUpdates": false }))
+            .unwrap();
+        assert!(!s.auto_check_updates);
+        assert!(Settings::default()
+            .with_patch(&serde_json::json!({ "autoCheckUpdates": "no" }))
+            .is_err());
     }
 }
