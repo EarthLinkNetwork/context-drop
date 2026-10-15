@@ -50,7 +50,10 @@ pub struct UpdateStatus {
     /// Download progress in bytes ("downloading").
     pub downloaded: u64,
     pub total: Option<u64>,
-    /// The last check's or install's failure, cleared when one succeeds.
+    /// The last failure to show. A check's failure is replaced by the next
+    /// check; an install's failure stays while the update it concerns is still
+    /// offered (a failed check may replace it), and goes when a check finds
+    /// no update or a new install starts.
     pub error: Option<String>,
     /// "check" | "install": which of the two failed.
     pub error_during: Option<&'static str>,
@@ -176,8 +179,8 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
             s.state = "checking";
         }
         s.checking = true;
-        // An install failure stays on screen until the next install attempt;
-        // only the previous check's error is replaced.
+        // Starting a check replaces only the previous check's error: an
+        // install failure stays on screen while its update is still offered.
         if s.error_during == Some("check") {
             s.error = None;
             s.error_during = None;
@@ -204,7 +207,8 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
                     "upToDate"
                 };
                 s.checking = false;
-                if s.error.as_deref() == Some(BUSY_REFUSAL) {
+                // No update any more: an install failure no longer applies.
+                if s.state == "upToDate" || s.error.as_deref() == Some(BUSY_REFUSAL) {
                     s.error = None;
                     s.error_during = None;
                 }
