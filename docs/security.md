@@ -90,12 +90,11 @@ SQLite runs in WAL mode with a 5s busy timeout, `foreign_keys` ON, and `synchron
 
 ---
 
-## No-network guarantees (absolute)
+## Network use: update checks only
 
-Context Drop, as a product, makes the following hard guarantees. None of these are configurable "off by default" toggles — they are absent by design:
+Context Drop, as a product, makes the following guarantees. They are absent by design, not "off by default" toggles:
 
-- **No telemetry**
-- **No analytics**
+- **No telemetry or analytics** beyond the anonymous update check described below
 - **No cloud backend**
 - **No remote storage**
 - **No external API** for Context Drop functionality
@@ -106,13 +105,19 @@ Context Drop, as a product, makes the following hard guarantees. None of these a
 
 Packet data stays local.
 
+The desktop app's **only** network use is the update check, which **is** a setting (Settings → Advanced → Updates, on by default):
+
+- At launch and about once a day it reads the latest release's `latest.json` from GitHub over HTTPS. No identifiers or packet data are sent; GitHub sees the IP address and the updater's User-Agent.
+- It downloads an update only when the user chooses **Install & Restart**, and installs it only if the signature verifies with the public key built into the app, the signature is bound to the announced version (`requireSignedVersion`), and the version is newer than the running one.
+- The maintainers read only GitHub's public per-file download counts (DMG, update, `latest.json`) as a rough count of installs in use. With the automatic check off, an install sends nothing unless the user presses **Check for Updates**.
+
 ---
 
 ## The model-provider boundary
 
 This is the single most important distinction to understand.
 
-**Context Drop itself transmits nothing off the machine.** It has no network path for packet content.
+**Context Drop itself transmits no packet content off the machine.** It has no network path for packet content (its only network use is the update check above).
 
 The **only** time packet material leaves your machine is when **Claude Code itself** sends that material to its configured model provider — as the isolated `context-investigator` subagent reads the packet items during processing. That is **Claude Code's normal behavior**, exactly as it would be for any file or content you point Claude Code at. It is **not** Context Drop transmitting your data.
 
@@ -196,5 +201,5 @@ Because cleanup is event-triggered rather than scheduled, Context Drop never run
 - Raw context is confined to an isolated subagent and its compact result — it never lands in the main Claude conversation.
 - The clipboard is watched only while Capture is ON, which is always visible in the tray, off by default, and never auto-resumed after restart.
 - All data is stored locally under a per-user directory with owner-only permissions (`0700`/`0600` on Unix, `%APPDATA%` ACLs on Windows) and coordinated through SQLite + the filesystem — no network listener, no localhost HTTP service.
-- Context Drop transmits nothing off the machine. The only content that leaves is what Claude Code itself sends to its configured model provider when its subagent reads a packet — normal Claude Code behavior, not Context Drop.
+- Context Drop transmits no packet content off the machine (its only network use is the update check). The only content that leaves is what Claude Code itself sends to its configured model provider when its subagent reads a packet — normal Claude Code behavior, not Context Drop.
 - Logs and manifests record metadata (ids, types, sizes, state transitions, hashes, error classes) and never raw clipboard content, file contents, image content, or secrets.

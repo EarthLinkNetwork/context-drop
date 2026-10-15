@@ -2,8 +2,9 @@
 //!
 //! A menu-bar / system-tray utility. Capture is OFF by default and only watches
 //! the clipboard while ON (never an always-on daemon). The app and the CLI
-//! coordinate purely through the shared SQLite DB + filesystem. The desktop
-//! never sends anything over the network.
+//! coordinate purely through the shared SQLite DB + filesystem. The desktop's
+//! only network use is the update check (see `updater`); packet data never
+//! leaves the machine through it.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

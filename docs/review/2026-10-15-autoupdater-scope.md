@@ -19,7 +19,7 @@
 - **リリース（`release.yml`）**: `vX.Y.Z`（数字だけ）のタグの push でだけ公開する（`v0.2.0-rc1` のようなタグでは動かない。スクリプトでも正規表現で確かめる）。DMG に加えて次を、**まず draft の Release にすべて上げ、ファイルがそろったことを確かめてから公開（`--draft=false --latest`）**する（draft は `releases/latest` に出ないので、latest.json が無い・古い時間を作らない）。同じタグの Release が既にあれば失敗させる（上書き `--clobber` をしない。ダウンロード数も消えない）。
   - `Context-Drop-vX.Y.Z-macos-arm64.app.tar.gz`（更新用の .app）と `.sig`（その署名）
   - `latest.json`（`version`・`notes`・`pub_date`・`platforms.darwin-aarch64.{url, signature}`）
-  - 更新用の成果物は CI の設定ファイル `src-tauri/tauri.updater.conf.json`（`createUpdaterArtifacts: true`）でだけ作る。手元の `tauri build` は署名鍵なしでもこれまで通り動く。
+  - 更新用の成果物は CI の設定ファイル `src-tauri/tauri.release.conf.json`（CI がその場で作る・`createUpdaterArtifacts: true` と版）でだけ作る。手元の `tauri build` は署名鍵なしでもこれまで通り動く。
   - 署名鍵 `TAURI_SIGNING_PRIVATE_KEY`（とパスワード）が無ければ、最初の検査で止める（既存の Apple 用の秘密と同じ扱い）。
   - **公開する前に CI で確かめる**: (1) タグの版と `tauri.conf.json` の版が一致する、(2) `.sig` と埋め込んだ公開鍵を base64 から戻し、`minisign -V` で tar.gz を検証し、**検証済みの trusted comment に `version:<版>` がある**ことを確かめる（`requireSignedVersion` で全員に拒否されるリリースを出さない）、(3) tar.gz を展開した写しの `.app` が codesign と Gatekeeper（spctl）の検査を通る、(4) latest.json を jq で確かめる（version は先頭の v 無しで (1) と同じ・`platforms["darwin-aarch64"].url` が上げるファイルの URL・signature が `.sig` と同じ・pub_date は RFC 3339）。tar.gz は bundler が作ったものを名前だけ変えて上げる（作り直さない）。
   - 手動実行（workflow_dispatch）は今まで通り何も公開せず、DMG・tar.gz・sig・latest.json を workflow artifact に上げる。入力 `version` を渡すと、その版でビルドする（E2E 用の `0.1.10-rc.1` など。公開はしない）。

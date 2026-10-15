@@ -79,9 +79,10 @@ raw context -> main Claude -> subagent
 
 ## Privacy Guarantees
 
-The following are absolute properties of Context Drop:
+The following are properties of Context Drop:
 
-- **No telemetry, no analytics.**
+- **No telemetry or analytics** beyond the anonymous update check (see
+  [Update checks](#update-checks)).
 - **No cloud backend, no remote storage, no external API** for Context Drop functionality.
 - **No clipboard-content network transmission by Context Drop.**
 - **No always-on clipboard collection and no hidden monitoring.** Capture is off by default
@@ -90,6 +91,22 @@ The following are absolute properties of Context Drop:
   network listener. The desktop app and CLI coordinate **only** through the shared SQLite
   database and the filesystem.
 - **Packet data stays local.**
+
+### Update checks
+
+The desktop app's **only** network use is checking for updates. At launch and about once a
+day (unless turned off in Settings → Advanced → Updates) it reads the latest release's
+`latest.json` from GitHub (`github.com/EarthLinkNetwork/context-drop/releases/latest/download/latest.json`
+over HTTPS); it downloads an update only when the user chooses **Install & Restart**. No
+identifiers or packet data are sent; GitHub sees the IP address and the updater's
+User-Agent. The maintainers read only GitHub's public per-file download counts (DMG, update,
+`latest.json`) as a rough count of installs in use; with the automatic check off, an install
+is not in that count.
+
+An update is installed only if its signature verifies with the public key built into the app
+(minisign, `plugins.updater.pubkey`), the signature is bound to the announced version
+(`requireSignedVersion`), and that version is newer than the running one. The private key is
+held only in the repository's Actions secrets and the maintainers' secret store.
 
 ### Logging
 
@@ -158,7 +175,8 @@ returns the most recent eligible claim for the current session back to `READY`; 
 
 ## Model-Provider Boundary
 
-This distinction is important: Context Drop itself transmits **nothing** off the machine.
+This distinction is important: Context Drop itself transmits **no packet content** off the
+machine (its only network use is the [update check](#update-checks)).
 
 The **only** time packet content leaves the machine is when **Claude Code itself** sends
 packet material to its configured model provider as the isolated subagent reads it. That is

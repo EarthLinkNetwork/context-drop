@@ -462,9 +462,13 @@ preserved intact.
 
 ## Security and privacy
 
-Context Drop is local-only by construction:
+Context Drop keeps packets on the machine by construction:
 
-- No telemetry, no analytics, no cloud backend, no remote storage.
+- No telemetry or analytics beyond the anonymous update check; no cloud backend,
+  no remote storage.
+- The only network use is the desktop app's update check (GitHub `latest.json`
+  at launch and about once a day, can be turned off) and, when the user chooses
+  Install, downloading the signed update. See SECURITY.md → Update checks.
 - No external API for Context Drop functionality.
 - No clipboard-content network transmission **by** Context Drop.
 - No always-on clipboard collection; no hidden monitoring.
@@ -474,7 +478,7 @@ Packet data stays on the machine. The **only** content that ever leaves the
 machine is when Claude Code *itself* sends packet material to its configured
 model provider as its subagent reads the files — that is Claude Code's normal
 behavior, **not** Context Drop transmitting data. This distinction matters:
-Context Drop moves nothing off the machine; it merely places files where a
+Context Drop moves no packet content off the machine; it merely places files where a
 Claude Code subagent can read them locally.
 
 App logs never contain clipboard raw content, file contents, image content, or

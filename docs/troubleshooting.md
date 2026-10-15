@@ -395,8 +395,9 @@ If you are unsure what state a packet is in, `context-drop status` /
 ## A note on privacy (this is not a bug)
 
 Context Drop performs **no** network transmission of clipboard content itself:
-no telemetry, no analytics, no cloud backend, no remote storage, no always-on
-clipboard collection. Packet data stays local.
+no telemetry or analytics, no cloud backend, no remote storage, no always-on
+clipboard collection. Packet data stays local. Its only network use is the
+update check (Settings → Advanced → Updates; see SECURITY.md → Update checks).
 
 The **only** content that leaves your machine is when **Claude Code itself**
 sends packet material to its configured model provider as its subagent reads the

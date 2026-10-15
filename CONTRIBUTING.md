@@ -156,6 +156,30 @@ network listener. Do not add one.
 
 ---
 
+## Releasing
+
+1. Bump the version in `apps/desktop/src-tauri/tauri.conf.json`,
+   `integrations/claude-code/.claude-plugin/plugin.json` and
+   `.claude-plugin/marketplace.json`, and move the `CHANGELOG.md` entries
+   under the new version.
+2. Merge to `main`, then push the tag `vX.Y.Z` (digits only; it must equal
+   `tauri.conf.json`'s version). `.github/workflows/release.yml` builds, signs,
+   notarizes, checks the update files (`.github/scripts/prepare-updater.sh`),
+   and publishes the release with the DMG, the update tarball + signature, and
+   `latest.json`. Installed apps (v0.1.10+) then offer the update.
+3. A dry run (Actions → Release → Run workflow) builds and checks everything
+   but publishes nothing; its `version` input (e.g. `0.1.10-rc.1`) builds a
+   lower test version, to try updating from it to the real release.
+
+The updater's signing key is the `TAURI_SIGNING_PRIVATE_KEY` /
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets, also kept in dotvault
+(`dotvault run -p context-drop -E production -- …`). Its public half is
+`plugins.updater.pubkey` in `tauri.conf.json`. Never commit it (`*.key` is
+ignored); losing it means installed apps can no longer be updated.
+
+Download counts per release (DMG / in-app update / update checks):
+`.github/scripts/release-stats.sh`.
+
 ## Pull request guidance
 
 - Keep PRs focused and reasonably small. Describe what changed and why, and note
@@ -170,8 +194,8 @@ network listener. Do not add one.
   flags/exit codes, or the Claude Code integration, update the corresponding
   docs under [`docs/`](./docs/) in the same PR.
 - Any change touching capture, storage, routing, logging, or transmission must
-  be consistent with [`SECURITY.md`](./SECURITY.md): no telemetry, no analytics,
-  no cloud backend, no remote storage, no external API for Context Drop
+  be consistent with [`SECURITY.md`](./SECURITY.md): no telemetry or analytics
+  (the update check is the only network use), no cloud backend, no remote storage, no external API for Context Drop
   functionality, no clipboard-content network transmission by Context Drop, no
   always-on clipboard collection, no hidden monitoring, and no localhost
   unauthenticated HTTP service.
