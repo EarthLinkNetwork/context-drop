@@ -100,6 +100,35 @@ pub fn plan(
         .collect()
 }
 
+/// The final duplicate check for a save: if any action in `changed` would end
+/// up with the same key combination as another action in `settings` (the
+/// settings as they would be saved), return (changed action, other action).
+/// The backend runs this under its settings lock, so it holds whatever the UI
+/// believed about saves still in flight or failed.
+pub fn duplicate_after_change(
+    settings: &Settings,
+    changed: &[ShortcutAction],
+    key_of: impl Fn(&str) -> Option<u32>,
+) -> Option<(ShortcutAction, ShortcutAction)> {
+    let id = |a: ShortcutAction| {
+        let acc = a.accelerator(settings).trim();
+        if acc.is_empty() {
+            None
+        } else {
+            key_of(acc)
+        }
+    };
+    for &a in changed {
+        let Some(mine) = id(a) else { continue };
+        for other in ShortcutAction::ALL {
+            if other != a && id(other) == Some(mine) {
+                return Some((a, other));
+            }
+        }
+    }
+    None
+}
+
 /// The action a pressed key triggers: only keys that were actually registered
 /// route anywhere (a refused or failed shortcut never does).
 pub fn route(registered: &[(ShortcutAction, u32)], pressed: u32) -> Option<ShortcutAction> {
@@ -184,6 +213,28 @@ mod tests {
         let p = plan(&settings("??", "Cmd+Shift+0", "Cmd+Shift+8"), key_of);
         assert_eq!(p[0].1, Slot::Invalid);
         assert!(matches!(p[1].1, Slot::Register(_)));
+    }
+
+    // Tier A: the save-time check refuses a changed shortcut that equals any
+    // other one (in any spelling), and ignores off ones and unchanged rows.
+    #[test]
+    fn save_time_duplicate_check() {
+        let s = settings("Cmd+Shift+9", "CommandOrControl+Shift+9", "");
+        assert_eq!(
+            duplicate_after_change(&s, &[ShortcutAction::ToggleCapture], key_of),
+            Some((ShortcutAction::ToggleCapture, ShortcutAction::ToggleWindow))
+        );
+        let ok = settings("Cmd+Shift+9", "Cmd+Shift+0", "");
+        assert_eq!(
+            duplicate_after_change(&ok, &[ShortcutAction::ToggleAlwaysOnTop], key_of),
+            None
+        );
+        // An existing duplicate elsewhere does not block saving an unrelated row.
+        let old_dup = settings("Cmd+Shift+9", "Cmd+Shift+9", "Cmd+Shift+8");
+        assert_eq!(
+            duplicate_after_change(&old_dup, &[ShortcutAction::ToggleAlwaysOnTop], key_of),
+            None
+        );
     }
 
     // Tier A: routing only by registered ids — a refused duplicate never

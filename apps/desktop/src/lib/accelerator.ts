@@ -93,9 +93,10 @@ export function canonicalKey(name: string): string | null {
   return KEY_CANON[name.trim().toUpperCase()] ?? null;
 }
 
-// Parseable, but not usable as a recorded global shortcut here: no macOS
-// keycode for them in global-hotkey (F21+, Pause, ScrollLock, NumLock, media
-// keys) or they act as modifiers (CapsLock).
+// Parseable, but not offered for recording: no macOS keycode in global-hotkey
+// (F21+, Pause, ScrollLock), a different meaning or no key on Mac keyboards
+// (NumLock = the keypad Clear key, Insert, PrintScreen), media/volume keys,
+// or a key that acts as a modifier (CapsLock).
 const NOT_RECORDABLE = new Set([
   "F21",
   "F22",

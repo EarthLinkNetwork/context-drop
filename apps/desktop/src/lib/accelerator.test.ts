@@ -46,8 +46,8 @@ describe("recordKey", () => {
     }
   });
 
-  // Tier A: every key global-hotkey can register on macOS is recordable with a
-  // modifier — Esc and the keypad operators included (plain Esc cancels).
+  // Tier A: Esc and the keypad operators are recordable with a modifier
+  // (plain Esc cancels).
   it("records Esc and keypad operators with a modifier", () => {
     expect(recordKey(key("Escape", { ctrlKey: true }), "mac")).toEqual({
       kind: "ok",

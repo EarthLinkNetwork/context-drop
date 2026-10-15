@@ -1092,6 +1092,20 @@ fn update_settings(app: AppHandle, patch: serde_json::Value) -> Result<Settings,
         let db = open_db(&state.storage)?;
         let current = db.load_settings().map_err(|e| e.to_string())?;
         let next = current.with_patch(&patch)?;
+        // The final word on duplicate shortcuts, made here under the lock: the
+        // UI's own check can't know about saves still in flight or failed.
+        let changed: Vec<ShortcutAction> = ShortcutAction::ALL
+            .into_iter()
+            .filter(|a| a.accelerator(&next) != a.accelerator(&current))
+            .collect();
+        if let Some((_, other)) = shortcuts::duplicate_after_change(&next, &changed, |s| {
+            s.parse::<Shortcut>().ok().map(|k| k.id())
+        }) {
+            return Err(format!(
+                "that key combination is already used for “{}”",
+                other.label()
+            ));
+        }
         db.save_settings(&next).map_err(|e| e.to_string())?;
         *state.limits.lock().unwrap() = next.limits();
         next
@@ -1550,9 +1564,11 @@ pub fn run() {
                             // second press.
                             ShortcutAction::ToggleAlwaysOnTop => {
                                 let handle = app.clone();
-                                let _ = app.run_on_main_thread(move || {
+                                if let Err(e) = app.run_on_main_thread(move || {
                                     toggle_always_on_top(&handle, OnTopSource::Shortcut)
-                                });
+                                }) {
+                                    eprintln!("context-drop: Always on Top shortcut not run: {e}");
+                                }
                             }
                         });
                     }
