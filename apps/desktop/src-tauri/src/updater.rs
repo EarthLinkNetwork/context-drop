@@ -29,6 +29,8 @@ const FIRST_CHECK_DELAY: Duration = Duration::from_secs(10);
 const TICK: Duration = Duration::from_secs(10 * 60);
 
 pub const TRAY_ITEM_ID: &str = "update";
+/// Install pressed while a check runs; cleared once that check ends.
+const BUSY_REFUSAL: &str = "An update check is still running. Try again in a moment.";
 const TRAY_CHECK_TEXT: &str = "Check for Updates…";
 
 /// What the UI shows about updates (part of the app snapshot).
@@ -174,8 +176,12 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
             s.state = "checking";
         }
         s.checking = true;
-        s.error = None;
-        s.error_during = None;
+        // An install failure stays on screen until the next install attempt;
+        // only the previous check's error is replaced.
+        if s.error_during == Some("check") {
+            s.error = None;
+            s.error_during = None;
+        }
     });
 
     let result = match app.updater_builder().timeout(CHECK_TIMEOUT).build() {
@@ -198,6 +204,10 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
                     "upToDate"
                 };
                 s.checking = false;
+                if s.error.as_deref() == Some(BUSY_REFUSAL) {
+                    s.error = None;
+                    s.error_during = None;
+                }
                 s.version = version;
                 s.notes = notes;
                 s.checked_at = Some(now_ms());
@@ -233,7 +243,7 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
         Err(message)
     };
     let Some(_busy) = Busy::take(app) else {
-        return refuse("An update check is still running. Try again in a moment.".into());
+        return refuse(BUSY_REFUSAL.into());
     };
     if let Some(problem) = location_problem() {
         return refuse(problem);
