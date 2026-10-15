@@ -6,6 +6,7 @@ import { ItemModal } from "../features/packets/ItemModal";
 import { LastDispatch } from "../features/dispatch/LastDispatch";
 import { InstallationPanel } from "../features/settings/InstallationPanel";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
+import { api } from "../lib/api";
 import type { RecentItem } from "../lib/api";
 import { useAppState } from "../lib/useAppState";
 
@@ -67,9 +68,14 @@ export function App() {
         </p>
       )}
 
-      {!snap.shortcutRegistered && (
+      {(!snap.shortcutRegistered || !snap.showShortcutRegistered) && (
         <p className="warning" role="alert" data-testid="shortcut-conflict-global">
-          Global shortcut is not active — it may conflict with another app. Fix it in Settings.
+          {!snap.shortcutRegistered && !snap.showShortcutRegistered
+            ? "The capture and show-window shortcuts are"
+            : !snap.shortcutRegistered
+              ? "The capture shortcut is"
+              : "The show-window shortcut is"}{" "}
+          not active — it may conflict with another app. Fix it in Settings.
         </p>
       )}
 
@@ -157,9 +163,11 @@ export function App() {
         <SettingsPanel
           settings={snap.settings}
           shortcutRegistered={snap.shortcutRegistered}
+          showShortcutRegistered={snap.showShortcutRegistered}
           busy={state.busy}
           onSave={(s) => void state.saveSettings(s)}
           onOpenDataFolder={() => void state.openDataFolder()}
+          onListDisplays={api.listDisplays}
         />
       </div>
 

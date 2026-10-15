@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   installShortAlias: vi.fn(),
   openDataFolder: vi.fn(),
   privacyInfo: vi.fn(),
+  listDisplays: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../lib/api", () => ({ api: mocks }));
@@ -26,12 +27,19 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     capturing: false,
     shortcut: "CommandOrControl+Shift+9",
     shortcutRegistered: true,
+    showShortcut: "CommandOrControl+Shift+0",
+    showShortcutRegistered: true,
     currentDraft: null,
     lastDispatch: null,
     recentDispatches: [],
     readyCount: 0,
     settings: {
       globalShortcut: "CommandOrControl+Shift+9",
+      showWindowShortcut: "CommandOrControl+Shift+0",
+      windowPlacement: "cursor",
+      windowDisplay: "",
+      alwaysOnTop: false,
+      showOnAllDesktops: false,
       packetTtlHours: 24,
       maxItemBytes: 25 * 1024 * 1024,
       maxPacketBytes: 200 * 1024 * 1024,
@@ -117,6 +125,27 @@ describe("App", () => {
     // The shortcut setting (and its conflict warning) live on the Settings tab.
     await userEvent.click(await screen.findByRole("tab", { name: "Settings" }));
     expect(await screen.findByTestId("shortcut-conflict")).toBeInTheDocument();
+  });
+
+  // Tier A: a failed show-window shortcut must be visible without opening
+  // Settings (it was silently ignored before the banner covered it).
+  it("shows the global banner when only the show-window shortcut failed", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot({ showShortcutRegistered: false }));
+    render(<App />);
+    expect(await screen.findByTestId("shortcut-conflict-global")).toHaveTextContent(
+      "The show-window shortcut is not active",
+    );
+  });
+
+  // Tier A: when both fail the banner names both, not just the capture one.
+  it("names both shortcuts when neither registered", async () => {
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({ shortcutRegistered: false, showShortcutRegistered: false }),
+    );
+    render(<App />);
+    expect(await screen.findByTestId("shortcut-conflict-global")).toHaveTextContent(
+      "The capture and show-window shortcuts are not active",
+    );
   });
 
   it("splits Capture and Settings into tabs", async () => {

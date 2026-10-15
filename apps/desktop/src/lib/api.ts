@@ -45,8 +45,19 @@ export interface IntegrationStatus {
   marketplacePath: string;
 }
 
+/** Which screen the window opens on (tray click or show-window shortcut). */
+export type WindowPlacement = "cursor" | "display" | "last";
+
 export interface Settings {
+  /** Toggles Capture ON/OFF. */
   globalShortcut: string;
+  /** Shows / hides the window. Empty = off. */
+  showWindowShortcut: string;
+  windowPlacement: WindowPlacement;
+  /** Key of the chosen display (DisplayInfo.key) for "display" placement. */
+  windowDisplay: string;
+  alwaysOnTop: boolean;
+  showOnAllDesktops: boolean;
   packetTtlHours: number;
   maxItemBytes: number;
   maxPacketBytes: number;
@@ -59,6 +70,9 @@ export interface AppSnapshot {
   shortcut: string;
   /** False when the global shortcut could not be registered (conflict). */
   shortcutRegistered: boolean;
+  showShortcut: string;
+  /** False when a non-empty show-window shortcut could not be registered. */
+  showShortcutRegistered: boolean;
   currentDraft: CurrentDraft | null;
   lastDispatch: LastDispatchInfo | null;
   /** Recent dispatches, newest first (up to 10). */
@@ -72,6 +86,15 @@ export interface AppSnapshot {
   notice: string | null;
   /** The running app's version (e.g. "0.1.6"). */
   appVersion: string;
+}
+
+/** A connected display, for the "Open window on" picker. */
+export interface DisplayInfo {
+  key: string;
+  name: string;
+  width: number;
+  height: number;
+  primary: boolean;
 }
 
 // ---- Command surface ----------------------------------------------------
@@ -88,6 +111,7 @@ export const api = {
   clearPacket: () => invoke<void>("clear_packet"),
   undoLast: () => invoke<string>("undo_last"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
+  listDisplays: () => invoke<DisplayInfo[]>("list_displays"),
   installIntegration: (configDir?: string) =>
     invoke<string>("install_integration", { configDir: configDir ?? null }),
   installShortAlias: (configDir?: string) =>

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-15
+
+### Added
+
+- **Show / hide window shortcut** (default `CommandOrControl+Shift+0`,
+  configurable in Settings, empty = off). It opens the window on the screen you
+  are working on, and hides it when it is already in front. The capture
+  shortcut is unchanged (now labelled "Capture shortcut").
+- **Open window on** (Settings): the screen with the mouse pointer (default),
+  a specific display, or where it was last (kept across restarts). A
+  menu-bar icon click follows the same setting, so on a multi-monitor Mac the
+  window opens under the icon of the screen you clicked instead of always on
+  the main display. If the window is already on that screen it is not moved.
+- **Always on top** (Settings and the menu-bar menu) keeps the window in front
+  of other apps, so files are easy to drop on it.
+- **Show on all desktops** (Settings) keeps the window on every desktop
+  (Space) — the equivalent of the Dock's "Assign To: All Desktops", which a
+  menu-bar app without a Dock icon does not have.
+
 ## [0.1.7] - 2026-10-05
 
 ### Changed

@@ -492,14 +492,35 @@ window.
   Now (one-shot read of the current clipboard); Current Packet (item count,
   recent items), Clear Packet; Recent Dispatches (last 10: project, the pull
   instruction as a note, terminal tab, session, account, cwd, item count, time;
-  Undo on the newest); Settings (global
-  shortcut, TTL, file size limit, packet size limit, Claude integration
+  Undo on the newest); Settings (capture
+  shortcut, show-window shortcut, which screen the window opens on, always on
+  top, show on all desktops, TTL, file size limit, packet size limit, Claude integration
   status/list, Install integration, Install `/cd` alias, Open data folder,
   Privacy info).
 - **Global shortcut** (Tauri 2 `global-shortcut` plugin): default
   `CommandOrControl+Shift+9`, user-configurable. OFF → start capture;
   ON → stop/finalize. A claim from `/context-drop:pull` also auto-ends capture.
   If shortcut registration fails, the user is told.
+- **Show-window shortcut** (same plugin): default `CommandOrControl+Shift+0`,
+  user-configurable, empty = off. Hides the window when it is in front,
+  otherwise shows it. A value equal to the capture shortcut is refused and
+  reported, never silently shadowing it.
+- **Window placement** (tray click, tray "Show Window", show-window shortcut):
+  "the screen with the mouse pointer" (default; a tray click therefore opens
+  under the clicked screen's menu-bar icon), "a specific display" (falls back to
+  the pointer's screen when unplugged; matched by name + origin, then by name),
+  or "where it was last" (position saved when the window loses focus / hides /
+  the app quits, restored at startup only if still on a connected display). If
+  the window is already on the target screen it is not moved. The geometry is
+  pure (`context_drop_core::placement`, unit-tested); on macOS every value is
+  converted to points with its own monitor's scale factor because tao reports
+  monitor and cursor positions in different physical scales on mixed-DPI
+  setups. The Dock's "Assign To" menu does not exist for this Dock-less
+  (accessory) app, so these settings replace it: "All Desktops" maps to
+  "show on all desktops" (`NSWindowCollectionBehaviorCanJoinAllSpaces`), and a
+  per-display assignment to "a specific display".
+- **Always on top**: Settings checkbox and tray "Always on Top" check item, one
+  persisted setting kept in sync between them.
 
 Privacy is visible by design: when Capture is ON the tray indicator is
 obviously active, and capture never silently stays ON.
