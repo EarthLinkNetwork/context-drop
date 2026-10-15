@@ -1161,8 +1161,15 @@ fn toggle_always_on_top(app: &AppHandle) {
                 .ok()
                 .and_then(|db| db.load_settings().ok())
                 .map(|s| s.always_on_top);
-            if let Some(on) = saved {
-                sync_on_top_item(app, on);
+            match saved {
+                Some(on) => sync_on_top_item(app, on),
+                // DB unreadable: undo macOS's own flip of the tick.
+                None => {
+                    let item = state.on_top_item.lock().unwrap().clone();
+                    if let Some(item) = item {
+                        let _ = item.set_checked(!item.is_checked().unwrap_or(false));
+                    }
+                }
             }
             set_notice(app, format!("Could not change Always on Top: {e}"));
         }
