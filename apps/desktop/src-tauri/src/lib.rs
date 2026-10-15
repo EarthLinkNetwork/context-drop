@@ -58,6 +58,9 @@ struct AppState {
     /// While Some and not yet past, the UI is recording a new shortcut: a press
     /// of a registered shortcut is sent to the UI instead of being acted on.
     recording_until: Mutex<Option<Instant>>,
+    /// Bumped by every begin_recording, so a stale expiry timer can't end a
+    /// newer recording.
+    recording_gen: AtomicU64,
     /// The tray's "Always on Top" check item, kept in sync with the setting.
     on_top_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
     /// Serializes capture lifecycle actions (start/stop/clear/save) AND the
@@ -112,6 +115,7 @@ impl AppState {
             limits: Arc::new(Mutex::new(Limits::default())),
             shortcuts: Mutex::new(ShortcutBook::default()),
             recording_until: Mutex::new(None),
+            recording_gen: AtomicU64::new(0),
             on_top_item: Mutex::new(None),
             lifecycle: Arc::new(Mutex::new(())),
             thumb_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -1176,11 +1180,37 @@ fn register_shortcuts(app: &AppHandle, settings: &Settings) {
 /// The UI starts recording a new shortcut. The registered shortcuts stay
 /// registered (nothing is unregistered / re-registered); while recording, a
 /// press of one is forwarded to the UI as `cd:shortcut-pressed` instead of
-/// being acted on. Ends by itself after 20 s in case the UI never says so.
+/// being acted on. Ends by itself after `RECORDING_LIMIT` (20 s) in case the
+/// UI never says so.
+/// How long a shortcut recording may last (the UI ends its own at 19 s).
+const RECORDING_LIMIT: Duration = Duration::from_secs(20);
+
 #[tauri::command]
 fn begin_recording(app: AppHandle) {
     let state = app.state::<AppState>();
-    *state.recording_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(20));
+    // The window already lost focus (e.g. Cmd+Tab right after "Change"): the
+    // focus-loss event may have come first, so end the recording right away.
+    let focused = app
+        .get_webview_window(window::MAIN)
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false);
+    if !focused {
+        *state.recording_until.lock().unwrap() = None;
+        let _ = app.emit("cd:recording-ended", ());
+        return;
+    }
+    let gen = state.recording_gen.fetch_add(1, Ordering::SeqCst) + 1;
+    *state.recording_until.lock().unwrap() = Some(Instant::now() + RECORDING_LIMIT);
+    // End it at the limit even if no key is pressed, and tell the UI.
+    let app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(RECORDING_LIMIT);
+        let state = app.state::<AppState>();
+        let still_this_one = state.recording_gen.load(Ordering::SeqCst) == gen;
+        if still_this_one && state.recording_until.lock().unwrap().take().is_some() {
+            let _ = app.emit("cd:recording-ended", ());
+        }
+    });
 }
 
 #[tauri::command]
@@ -1234,10 +1264,6 @@ fn sync_on_top_item(app: &AppHandle, on: bool) {
     }
 }
 
-/// Tray "Always on Top": flip the setting, persist it, apply it. Only the
-/// `alwaysOnTop` key is written, and a failed read never writes anything, so
-/// the user's other settings can't be replaced by defaults. The tick (which
-/// macOS flips by itself on click) is always resynced to the saved value.
 /// Where an Always on Top toggle came from. Only a tray click has its check
 /// mark flipped by macOS itself (which a failed toggle must undo).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1246,6 +1272,10 @@ enum OnTopSource {
     Shortcut,
 }
 
+/// Tray "Always on Top": flip the setting, persist it, apply it. Only the
+/// `alwaysOnTop` key is written, and a failed read never writes anything, so
+/// the user's other settings can't be replaced by defaults. The tick (which
+/// macOS flips by itself on click) is always resynced to the saved value.
 fn toggle_always_on_top(app: &AppHandle, source: OnTopSource) {
     let state = app.state::<AppState>();
     let result = {
@@ -1655,6 +1685,31 @@ pub fn run() {
                     if let Ok(settings) = db.load_settings() {
                         if settings.auto_cleanup {
                             let _ = cleanup(&mut db, &state.storage, settings.packet_ttl_hours, now_ms());
+                        }
+                    }
+                }
+            }
+
+            // Upgrading from v0.1.8: the new Always on Top default may collide
+            // with a shortcut the user already set; then start it as off
+            // rather than greeting them with a "not active" warning.
+            {
+                let state = handle.state::<AppState>();
+                if let Ok(db) = open_db(&state.storage) {
+                    if !db.has_setting("onTopShortcut").unwrap_or(true) {
+                        if let Ok(mut s) = db.load_settings() {
+                            let collides = shortcuts::plan(&s, |a| {
+                                a.parse::<Shortcut>().ok().map(|k| k.id())
+                            })
+                            .iter()
+                            .any(|(a, slot)| {
+                                *a == ShortcutAction::ToggleAlwaysOnTop
+                                    && matches!(slot, Slot::Duplicate(_))
+                            });
+                            if collides {
+                                s.on_top_shortcut = String::new();
+                            }
+                            let _ = db.save_settings(&s);
                         }
                     }
                 }

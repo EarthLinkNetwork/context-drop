@@ -252,6 +252,20 @@ impl Db {
         Ok(())
     }
 
+    /// Whether a setting key has ever been saved (vs. falling back to its
+    /// default) — used to migrate a newly added setting once.
+    pub fn has_setting(&self, key: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM settings WHERE key = ?1",
+                params![key],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
     /// Set only the always-on-top flag (the tray toggle), leaving every other
     /// setting untouched.
     pub fn set_always_on_top(&self, on: bool) -> Result<()> {
@@ -565,6 +579,16 @@ mod tests {
         assert_eq!(loaded.global_shortcut, "");
         assert_eq!(loaded.show_window_shortcut, "");
         assert_eq!(loaded.on_top_shortcut, "");
+    }
+
+    // Tier A: has_setting tells "never saved" from "saved" (the v0.1.9
+    // migration of the new Always on Top shortcut depends on it).
+    #[test]
+    fn has_setting_tells_saved_from_default() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(!db.has_setting("onTopShortcut").unwrap());
+        db.save_settings(&Settings::default()).unwrap();
+        assert!(db.has_setting("onTopShortcut").unwrap());
     }
 
     // Tier A: the tray toggle writes only its own key; the user's other

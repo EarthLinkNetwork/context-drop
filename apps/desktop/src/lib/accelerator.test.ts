@@ -46,6 +46,11 @@ describe("recordKey", () => {
     }
   });
 
+  // Tier A: on Windows/Linux the Win key alone is not enough (the OS owns it).
+  it("needs Ctrl or Alt on other platforms", () => {
+    expect(recordKey(key("KeyD", { metaKey: true }), "other").kind).toBe("invalid");
+  });
+
   // Tier A: Esc (no modifiers) cancels; Esc with a modifier is a normal key.
   it("treats plain Esc as cancel", () => {
     expect(recordKey(key("Escape"), "mac")).toEqual({ kind: "cancel" });

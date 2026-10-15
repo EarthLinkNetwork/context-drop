@@ -26,6 +26,8 @@ const SHORTCUT_ROWS: { action: ShortcutActionId; field: keyof Settings; label: s
 ];
 
 interface Props {
+  /** The Settings view is on screen (its top-level tab is selected). */
+  visible: boolean;
   tab: SettingsTab;
   onTabChange: (tab: SettingsTab) => void;
   settings: Settings;
@@ -109,6 +111,8 @@ export function SettingsView(props: Props) {
 type Save = (patch: Partial<Settings>, key: string) => Promise<boolean>;
 
 function ShortcutsTab({
+  visible,
+  tab,
   settings,
   shortcuts,
   platform,
@@ -144,6 +148,7 @@ function ShortcutsTab({
             onBeginRecording={onBeginRecording}
             onEndRecording={onEndRecording}
             locked={recordingAction !== null && recordingAction !== row.action}
+            visible={visible && tab === "shortcuts"}
             onRecordingChange={(on) =>
               setRecordingAction((cur) => (on ? row.action : cur === row.action ? null : cur))
             }

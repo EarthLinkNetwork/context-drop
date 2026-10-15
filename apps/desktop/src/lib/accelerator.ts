@@ -106,7 +106,9 @@ export function recordKey(e: KeyLike, platform: Platform): RecordResult {
   if (!key) return { kind: "invalid", reason: "That key can't be used in a shortcut.", preview: full };
   // A global shortcut without Cmd/Ctrl/Option(Alt) would swallow normal typing
   // in every app (Enter, letters, Shift+letter...), so require one of them.
-  const strong = e.metaKey || e.ctrlKey || e.altKey;
+  // (The Windows key does not count on Windows/Linux: the OS owns most of its
+  // combinations.)
+  const strong = platform === "mac" ? e.metaKey || e.ctrlKey || e.altKey : e.ctrlKey || e.altKey;
   if (!strong) {
     const mod = platform === "mac" ? "⌘, ⌃ or ⌥" : "Ctrl or Alt";
     return { kind: "invalid", reason: `Include ${mod} in the combination.`, preview: full };

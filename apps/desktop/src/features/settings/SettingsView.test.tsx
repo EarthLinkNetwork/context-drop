@@ -42,6 +42,7 @@ function setup(over: { settings?: Partial<Settings>; tab?: SettingsTab; shortcut
     };
   });
   const props = {
+    visible: true,
     tab: over.tab ?? "shortcuts",
     onTabChange: vi.fn(),
     settings: { ...settings, ...over.settings },
@@ -233,6 +234,45 @@ describe("Shortcuts tab — recording lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("Shortcuts tab — recording survives polling", () => {
+  // Tier A: with the 1.5 s snapshot poll re-rendering (new arrays and
+  // callbacks each time), the UI still ends the recording at 19 s — the timer
+  // is not restarted by re-renders.
+  it("ends at 19 s even while the parent re-renders every 1.5 s", () => {
+    vi.useFakeTimers();
+    try {
+      const p = setup();
+      const r = within(row("Always on Top"));
+      fireEvent.click(r.button("Change"));
+      for (let t = 0; t < 19_000; t += 1_500) {
+        p.view.rerender(
+          <SettingsView {...p} settings={{ ...p.settings }} onEndRecording={p.onEndRecording} />,
+        );
+        act(() => vi.advanceTimersByTime(1_500));
+      }
+      expect(r.keys()).toBe("⌘⇧8");
+      expect(p.onEndRecording).toHaveBeenCalledOnce();
+      // Subscribed once for the whole recording (no gaps that drop events).
+      expect(p.subscribeRecording).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Tier A: leaving the Shortcuts tab ends the recording (a hidden row must
+  // not keep swallowing every key press).
+  it("ends the recording when the tab is left", async () => {
+    const p = setup();
+    await userEvent.click(within(row("Start / Stop Capture")).button("Change"));
+    p.view.rerender(<SettingsView {...p} tab="advanced" />);
+    expect(p.onEndRecording).toHaveBeenCalledOnce();
+    const f = screen.getByLabelText("Packet TTL (hours)");
+    fireEvent.focus(f);
+    fireEvent.change(f, { target: { value: "36" } });
+    expect(f).toHaveValue(36);
   });
 });
 

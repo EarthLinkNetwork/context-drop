@@ -181,6 +181,7 @@ export function App() {
 
       <div className="tab-panel" hidden={tab !== "settings"}>
         <SettingsView
+          visible={tab === "settings"}
           tab={settingsTab}
           onTabChange={setSettingsTab}
           settings={snap.settings}

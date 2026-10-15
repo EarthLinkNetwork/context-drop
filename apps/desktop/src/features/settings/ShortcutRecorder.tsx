@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ShortcutStatus } from "../../lib/api";
 import {
   formatAccelerator,
@@ -33,6 +33,8 @@ interface Props {
   onEndRecording: () => void;
   /** Another row is recording: this row's buttons are disabled. */
   locked: boolean;
+  /** The row is on screen (its tab is shown); hiding it ends a recording. */
+  visible: boolean;
   /** This row started (true) or stopped (false) recording. */
   onRecordingChange: (recording: boolean) => void;
   /**
@@ -63,6 +65,7 @@ export function ShortcutRecorder({
   onBeginRecording,
   onEndRecording,
   locked,
+  visible,
   onRecordingChange,
   subscribe,
 }: Props) {
@@ -70,65 +73,65 @@ export function ShortcutRecorder({
   const [preview, setPreview] = useState("");
   const [hint, setHint] = useState<string | null>(null);
   const recordingRef = useRef(false);
-  // Latest callbacks, so `stop` (and the unmount cleanup) keep one identity
-  // across parent re-renders — a re-render must never end a recording.
-  const endRef = useRef(onEndRecording);
-  const changeRef = useRef(onRecordingChange);
-  endRef.current = onEndRecording;
-  changeRef.current = onRecordingChange;
+  // Everything the recording reads from props goes through this ref, so the
+  // recording effect depends on `recording` ONLY: a parent re-render (the
+  // 1.5 s snapshot poll hands down new arrays / callbacks) can never end,
+  // restart or re-time a recording.
+  const latest = useRef({ others, platform, onSave, onEndRecording, onRecordingChange, subscribe });
+  latest.current = { others, platform, onSave, onEndRecording, onRecordingChange, subscribe };
 
-  const stop = useCallback(() => {
+  // A combination already used by another of the app's shortcuts.
+  const conflictWith = (acc: string): string | null => {
+    const { others: list, platform: pf } = latest.current;
+    const n = normalizeAccelerator(acc, pf);
+    const hit = list.find(
+      (o) => o.accelerator.trim() !== "" && normalizeAccelerator(o.accelerator, pf) === n,
+    );
+    return hit ? hit.label : null;
+  };
+
+  const stopRef = useRef(() => {
     if (!recordingRef.current) return;
     recordingRef.current = false;
     setRecording(false);
     setPreview("");
-    endRef.current();
-    changeRef.current(false);
-  }, []);
+    latest.current.onEndRecording();
+    latest.current.onRecordingChange(false);
+  });
+  const stop = stopRef.current;
 
-  // A combination already used by another of the app's shortcuts.
-  const conflictWith = useCallback(
-    (acc: string): string | null => {
-      const n = normalizeAccelerator(acc, platform);
-      const hit = others.find(
-        (o) => o.accelerator.trim() !== "" && normalizeAccelerator(o.accelerator, platform) === n,
-      );
-      return hit ? hit.label : null;
-    },
-    [others, platform],
-  );
-
-  const accept = useCallback(
-    (acc: string) => {
-      const owner = conflictWith(acc);
-      if (owner) {
-        setPreview(formatAccelerator(acc, platform));
-        setHint(`Already used for “${owner}”. Press another combination.`);
-        return;
-      }
-      stop();
-      setHint(null);
-      void onSave(acc);
-    },
-    [conflictWith, onSave, platform, stop],
-  );
+  const acceptRef = useRef((acc: string) => {
+    const owner = conflictWithRef.current(acc);
+    if (owner) {
+      setPreview(formatAccelerator(acc, latest.current.platform));
+      setHint(`Already used for “${owner}”. Press another combination.`);
+      return;
+    }
+    stopRef.current();
+    setHint(null);
+    void latest.current.onSave(acc);
+  });
+  const conflictWithRef = useRef(conflictWith);
+  conflictWithRef.current = conflictWith;
 
   // While recording: every keydown/keyup is ours (no button re-press, no Tab
   // focus move, no typing), interpreted by recordKey.
   useEffect(() => {
     if (!recording) return;
+    const stopNow = stopRef.current;
+    const accept = acceptRef.current;
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
       if (e.repeat || e.isComposing) return;
-      const r = recordKey(e, platform);
+      const r = recordKey(e, latest.current.platform);
       switch (r.kind) {
         case "pending":
           setPreview(r.preview);
           return;
         case "cancel":
           setHint(null);
-          stop();
+          stopNow();
           return;
         case "invalid":
           setPreview(r.preview);
@@ -143,23 +146,25 @@ export function ShortcutRecorder({
       e.preventDefault();
       e.stopPropagation();
     };
-    const onBlur = () => stop();
+    const onBlur = () => stopNow();
     // The backend stops forwarding after 20 s; end here a little earlier so
-    // the row never shows "recording" while presses act again.
+    // the row never shows "recording" while presses act again. Set once per
+    // recording (this effect does not re-run on re-renders).
     const timeout = setTimeout(() => {
       setHint(null);
-      stop();
+      stopNow();
     }, RECORDING_TIMEOUT_MS);
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", swallow, true);
     window.addEventListener("blur", onBlur);
     // A registered shortcut never reaches the page (the OS takes it); the
-    // backend forwards it instead, and ends the recording on focus loss.
-    const unsubscribe = subscribe(
+    // backend forwards it instead, and ends the recording on focus loss or at
+    // its time limit.
+    const unsubscribe = latest.current.subscribe(
       (acc) => {
         if (recordingRef.current) accept(acc);
       },
-      () => stop(),
+      () => stopNow(),
     );
     return () => {
       clearTimeout(timeout);
@@ -168,11 +173,16 @@ export function ShortcutRecorder({
       window.removeEventListener("blur", onBlur);
       unsubscribe();
     };
-  }, [recording, platform, accept, stop, subscribe]);
+  }, [recording]);
 
-  // Never leave the backend recording if this row goes away mid-recording
-  // (`stop` is stable, so this runs on unmount only).
-  useEffect(() => () => stop(), [stop]);
+  // Leaving the tab (or the Settings view) ends a recording: a hidden row must
+  // not keep taking every key press.
+  useEffect(() => {
+    if (!visible) stopRef.current();
+  }, [visible]);
+
+  // Never leave the backend recording if this row goes away mid-recording.
+  useEffect(() => () => stopRef.current(), []);
 
   const start = () => {
     if (locked) return;
