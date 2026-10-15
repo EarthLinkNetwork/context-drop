@@ -24,45 +24,21 @@ export function SettingsPanel({
   onOpenDataFolder,
   onListDisplays,
 }: Props) {
-  const [shortcut, setShortcut] = useState(settings.globalShortcut);
-  const [showShortcut, setShowShortcut] = useState(settings.showWindowShortcut);
-  const [placement, setPlacement] = useState<WindowPlacement>(settings.windowPlacement);
-  const [display, setDisplay] = useState(settings.windowDisplay);
-  const [alwaysOnTop, setAlwaysOnTop] = useState(settings.alwaysOnTop);
-  const [allDesktops, setAllDesktops] = useState(settings.showOnAllDesktops);
+  // Each field follows its OWN saved value: when that value really changes
+  // (backend clamp, tray "Always on Top"), only that field is reset. The ~1.5s
+  // snapshot poll (new object, equal values) and changes to other fields leave
+  // the user's unsaved edits alone.
+  const [shortcut, setShortcut] = useSavedField(settings.globalShortcut);
+  const [showShortcut, setShowShortcut] = useSavedField(settings.showWindowShortcut);
+  const [placement, setPlacement] = useSavedField<WindowPlacement>(settings.windowPlacement);
+  const [display, setDisplay] = useSavedField(settings.windowDisplay);
+  const [alwaysOnTop, setAlwaysOnTop] = useSavedField(settings.alwaysOnTop);
+  const [allDesktops, setAllDesktops] = useSavedField(settings.showOnAllDesktops);
+  const [ttl, setTtl] = useSavedField(String(settings.packetTtlHours));
+  const [itemMb, setItemMb] = useSavedField(String(Math.round(settings.maxItemBytes / MB)));
+  const [packetMb, setPacketMb] = useSavedField(String(Math.round(settings.maxPacketBytes / MB)));
+  const [autoCleanup, setAutoCleanup] = useSavedField(settings.autoCleanup);
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
-  const [ttl, setTtl] = useState(String(settings.packetTtlHours));
-  const [itemMb, setItemMb] = useState(String(Math.round(settings.maxItemBytes / MB)));
-  const [packetMb, setPacketMb] = useState(String(Math.round(settings.maxPacketBytes / MB)));
-  const [autoCleanup, setAutoCleanup] = useState(settings.autoCleanup);
-
-  // Resync the form when the SAVED settings actually change (e.g. the backend
-  // clamped a value on save). Depending on the primitive values — not the object
-  // identity — means the ~1.5s snapshot poll (a new object each time with equal
-  // values) does NOT clobber the user's unsaved edits; only a real change does.
-  useEffect(() => {
-    setShortcut(settings.globalShortcut);
-    setShowShortcut(settings.showWindowShortcut);
-    setPlacement(settings.windowPlacement);
-    setDisplay(settings.windowDisplay);
-    setAlwaysOnTop(settings.alwaysOnTop);
-    setAllDesktops(settings.showOnAllDesktops);
-    setTtl(String(settings.packetTtlHours));
-    setItemMb(String(Math.round(settings.maxItemBytes / MB)));
-    setPacketMb(String(Math.round(settings.maxPacketBytes / MB)));
-    setAutoCleanup(settings.autoCleanup);
-  }, [
-    settings.globalShortcut,
-    settings.showWindowShortcut,
-    settings.windowPlacement,
-    settings.windowDisplay,
-    settings.alwaysOnTop,
-    settings.showOnAllDesktops,
-    settings.packetTtlHours,
-    settings.maxItemBytes,
-    settings.maxPacketBytes,
-    settings.autoCleanup,
-  ]);
 
   // Load the connected displays when the picker is shown (and again each time
   // it is re-selected, so a monitor plugged in meanwhile appears).
@@ -270,6 +246,13 @@ export function SettingsPanel({
       </details>
     </section>
   );
+}
+
+/** Local form state that is reset only when its saved (primitive) value changes. */
+function useSavedField<T>(saved: T): [T, (value: T) => void] {
+  const [value, setValue] = useState(saved);
+  useEffect(() => setValue(saved), [saved]);
+  return [value, setValue];
 }
 
 function clampInt(value: string, fallback: number, min: number): number {

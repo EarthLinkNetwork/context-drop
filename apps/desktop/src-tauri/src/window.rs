@@ -140,7 +140,24 @@ fn move_to(win: &WebviewWindow, x: f64, y: f64) {
     let _ = win.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
 
-/// Show + focus the main window on the screen `settings` asks for.
+/// On macOS `set_position` only queues the move on the main dispatch queue,
+/// while `show` orders the window front at once — so without waiting, the
+/// window would flash on its old screen before jumping. Poll (briefly) until
+/// the move has landed. Call off the main thread only: the move needs the main
+/// thread to run, and the position getter round-trips through it.
+fn wait_until_at(win: &WebviewWindow, x: f64, y: f64) {
+    for _ in 0..25 {
+        if let Some(r) = window_rect(win) {
+            if (r.x - x).abs() < 2.0 && (r.y - y).abs() < 2.0 {
+                return;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(8));
+    }
+}
+
+/// Show + focus the main window on the screen `settings` asks for. Call off
+/// the main thread (see `wait_until_at`).
 pub fn show(app: &AppHandle, settings: &Settings) {
     let Some(win) = app.get_webview_window(MAIN) else {
         return;
@@ -155,6 +172,7 @@ pub fn show(app: &AppHandle, settings: &Settings) {
         );
         if let Plan::MoveTo(x, y) = plan {
             move_to(&win, x, y);
+            wait_until_at(&win, x, y);
         }
     }
     let _ = win.unminimize();

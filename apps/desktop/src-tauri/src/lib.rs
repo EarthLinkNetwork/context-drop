@@ -57,6 +57,9 @@ struct AppState {
     /// The show/hide-window shortcut ("" = off) and whether it registered.
     show_shortcut: Mutex<String>,
     show_shortcut_registered: AtomicBool,
+    /// Id of the show-window shortcut ONLY while it is actually registered, so
+    /// a refused one (e.g. equal to the capture shortcut) never steals presses.
+    show_shortcut_id: Mutex<Option<u32>>,
     /// The tray's "Always on Top" check item, kept in sync with the setting.
     on_top_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
     /// Serializes capture lifecycle actions (start/stop/clear/save) AND the
@@ -81,6 +84,7 @@ impl AppState {
             shortcut_registered: Arc::new(AtomicBool::new(false)),
             show_shortcut: Mutex::new(String::new()),
             show_shortcut_registered: AtomicBool::new(false),
+            show_shortcut_id: Mutex::new(None),
             on_top_item: Mutex::new(None),
             lifecycle: Arc::new(Mutex::new(())),
             thumb_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -1093,9 +1097,20 @@ fn register_shortcuts(app: &AppHandle, capture: &str, show: &str) {
             let _ = gs.unregister(sc);
         }
     }
-    let register = |s: &str| s.parse::<Shortcut>().is_ok_and(|sc| gs.register(sc).is_ok());
-    let capture_ok = register(capture);
-    let show_ok = show.is_empty() || (!same_shortcut(capture, show) && register(show));
+    let register = |s: &str| {
+        s.parse::<Shortcut>()
+            .ok()
+            .filter(|sc| gs.register(*sc).is_ok())
+            .map(|sc| sc.id())
+    };
+    let capture_ok = register(capture).is_some();
+    let show_id = if show.is_empty() || same_shortcut(capture, show) {
+        None
+    } else {
+        register(show)
+    };
+    let show_ok = show.is_empty() || show_id.is_some();
+    *state.show_shortcut_id.lock().unwrap() = show_id;
     state.shortcut_registered.store(capture_ok, Ordering::SeqCst);
     state.show_shortcut_registered.store(show_ok, Ordering::SeqCst);
     *state.shortcut.lock().unwrap() = capture.to_string();
@@ -1118,27 +1133,40 @@ fn sync_on_top_item(app: &AppHandle, on: bool) {
     }
 }
 
-/// Tray "Always on Top": flip the setting, persist it, apply it.
+/// Tray "Always on Top": flip the setting, persist it, apply it. Only the
+/// `alwaysOnTop` key is written, and a failed read never writes anything, so
+/// the user's other settings can't be replaced by defaults. The tick (which
+/// macOS flips by itself on click) is always resynced to the saved value.
 fn toggle_always_on_top(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let settings = {
-        // Same lock as save_settings, so a concurrent UI save cannot interleave
-        // its read-modify-write with this one.
+    let result = {
+        // Same lock as save_settings, so a concurrent UI save cannot interleave.
         let _lifecycle = state.lifecycle.lock().unwrap();
-        let mut settings = load_settings_or_default(app);
-        settings.always_on_top = !settings.always_on_top;
-        if let Err(e) = open_db(&state.storage).and_then(|db| {
-            db.save_settings(&settings).map_err(|e| e.to_string())
-        }) {
-            drop(_lifecycle);
-            set_notice(app, format!("Could not save Always on Top: {e}"));
-            return;
-        }
-        settings
+        open_db(&state.storage).and_then(|db| {
+            let settings = db.load_settings().map_err(|e| e.to_string())?;
+            let on = !settings.always_on_top;
+            db.set_always_on_top(on).map_err(|e| e.to_string())?;
+            Ok(Settings { always_on_top: on, ..settings })
+        })
     };
-    window::apply_flags(app, &settings);
-    sync_on_top_item(app, settings.always_on_top);
-    let _ = app.emit("cd:refresh", ());
+    match result {
+        Ok(settings) => {
+            window::apply_flags(app, &settings);
+            sync_on_top_item(app, settings.always_on_top);
+            let _ = app.emit("cd:refresh", ());
+        }
+        Err(e) => {
+            // Put the tick back to what is actually saved (if readable).
+            let saved = open_db(&state.storage)
+                .ok()
+                .and_then(|db| db.load_settings().ok())
+                .map(|s| s.always_on_top);
+            if let Some(on) = saved {
+                sync_on_top_item(app, on);
+            }
+            set_notice(app, format!("Could not change Always on Top: {e}"));
+        }
+    }
 }
 
 /// Remember where the (visible) main window is, for "Where it was last".
@@ -1339,8 +1367,7 @@ pub fn run() {
                 .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
                         let is_show = app.try_state::<AppState>().is_some_and(|state| {
-                            let show = state.show_shortcut.lock().unwrap();
-                            show.parse::<Shortcut>().is_ok_and(|sc| sc.id() == shortcut.id())
+                            *state.show_shortcut_id.lock().unwrap() == Some(shortcut.id())
                         });
                         // Return from the hotkey callback immediately: doing the
                         // DB/tray/window work here can deadlock the hotkey thread
@@ -1566,14 +1593,19 @@ pub fn run() {
         .expect("error while running Context Drop");
 }
 
-/// Show the window on the screen chosen in Settings.
+/// Show the window on the screen chosen in Settings. Runs on its own thread
+/// because `window::show` waits for the (asynchronous) move to land before
+/// showing, which needs the main thread free to perform it.
 fn show_main_window(app: &AppHandle) {
-    let settings = load_settings_or_default(app);
-    window::show(app, &settings);
+    let app = app.clone();
+    thread::spawn(move || {
+        let settings = load_settings_or_default(&app);
+        window::show(&app, &settings);
+    });
 }
 
 /// The show/hide shortcut: hide the window when it is in front, otherwise show
-/// it on the chosen screen.
+/// it on the chosen screen. Must run off the main thread (see show_main_window).
 fn toggle_main_window(app: &AppHandle) {
     if window::is_frontmost(app) {
         remember_window_position(app);

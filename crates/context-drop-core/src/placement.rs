@@ -76,6 +76,11 @@ pub fn find_display(displays: &[Display], key: &str) -> Option<usize> {
 /// The display containing the point, or the nearest one when the point falls
 /// in a gap between displays.
 pub fn display_near(displays: &[Display], x: f64, y: f64) -> Option<usize> {
+    // Containment first: on a shared edge both displays are at distance 0, and
+    // only `contains` (half-open) says which one the point is really on.
+    if let Some(i) = displays.iter().position(|d| d.frame.contains(x, y)) {
+        return Some(i);
+    }
     displays
         .iter()
         .enumerate()
@@ -332,6 +337,15 @@ mod tests {
         let d = two_displays();
         // Below the external display's bottom edge (y >= 1240), right of main.
         assert_eq!(display_near(&d, 2000.0, 1300.0), Some(1));
+    }
+
+    // Tier A: a pointer on the first column of the right-hand display is on
+    // that display, not on the main one whose right edge it touches.
+    #[test]
+    fn pointer_on_shared_edge_belongs_to_the_display_it_is_on() {
+        let d = two_displays();
+        assert_eq!(display_near(&d, 1512.0, 300.0), Some(1));
+        assert_eq!(display_near(&d, 1511.0, 300.0), Some(0));
     }
 
     // Tier A: geometry the window lands by; a wrong value puts it on the wrong screen.

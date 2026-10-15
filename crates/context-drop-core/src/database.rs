@@ -250,6 +250,17 @@ impl Db {
         Ok(())
     }
 
+    /// Set only the always-on-top flag (the tray toggle), leaving every other
+    /// setting untouched.
+    pub fn set_always_on_top(&self, on: bool) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO settings(key, value) VALUES ('alwaysOnTop', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![on.to_string()],
+        )?;
+        Ok(())
+    }
+
     /// The window's last remembered top-left position (global coordinates,
     /// see `placement`). Kept apart from `Settings` so a Settings save from the
     /// UI can never overwrite it with a stale copy.
@@ -534,6 +545,26 @@ mod tests {
         assert_eq!(loaded.window_display, "DELL U2720Q@1512,0");
         assert!(loaded.always_on_top);
         assert!(loaded.show_on_all_desktops);
+    }
+
+    // Tier A: the tray toggle writes only its own key; the user's other
+    // settings must survive it.
+    #[test]
+    fn set_always_on_top_touches_only_that_key() {
+        let db = Db::open_in_memory().unwrap();
+        let s = Settings {
+            global_shortcut: "CommandOrControl+Alt+K".into(),
+            packet_ttl_hours: 48,
+            ..Settings::default()
+        };
+        db.save_settings(&s).unwrap();
+        db.set_always_on_top(true).unwrap();
+        let loaded = db.load_settings().unwrap();
+        assert!(loaded.always_on_top);
+        assert_eq!(loaded.global_shortcut, "CommandOrControl+Alt+K");
+        assert_eq!(loaded.packet_ttl_hours, 48);
+        db.set_always_on_top(false).unwrap();
+        assert!(!db.load_settings().unwrap().always_on_top);
     }
 
     // Tier A: persistence of the window settings / position.

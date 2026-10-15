@@ -209,4 +209,26 @@ describe("SettingsPanel", () => {
     );
     expect(screen.queryByTestId("show-shortcut-conflict")).not.toBeInTheDocument();
   });
+
+  // Tier A: a tray "Always on Top" toggle changes only that saved value; it
+  // must not wipe the user's unsaved edits in other fields.
+  it("keeps unsaved edits when another saved value changes", () => {
+    const props = {
+      shortcutRegistered: true,
+      showShortcutRegistered: true,
+      busy: false,
+      onSave: vi.fn(),
+      onOpenDataFolder: vi.fn(),
+      onListDisplays: vi.fn().mockResolvedValue([]),
+    };
+    const { rerender } = render(<SettingsPanel settings={settings} {...props} />);
+    fireEvent.change(screen.getByLabelText("Packet TTL (hours)"), { target: { value: "48" } });
+    fireEvent.change(screen.getByLabelText("Capture shortcut"), {
+      target: { value: "CommandOrControl+Alt+K" },
+    });
+    rerender(<SettingsPanel settings={{ ...settings, alwaysOnTop: true }} {...props} />);
+    expect(screen.getByLabelText("Always on top")).toBeChecked();
+    expect(screen.getByLabelText("Packet TTL (hours)")).toHaveValue(48);
+    expect(screen.getByLabelText("Capture shortcut")).toHaveValue("CommandOrControl+Alt+K");
+  });
 });
