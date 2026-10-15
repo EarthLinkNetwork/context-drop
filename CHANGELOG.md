@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Show / hide window shortcut** (default `CommandOrControl+Alt+D`,
+- **Show / hide window shortcut** (default `CommandOrControl+Shift+0`,
   configurable in Settings, empty = off). It opens the window on the screen you
   are working on, and hides it when it is already in front. The capture
   shortcut is unchanged (now labelled "Capture shortcut").

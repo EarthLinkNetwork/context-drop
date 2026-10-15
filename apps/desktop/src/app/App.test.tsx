@@ -27,7 +27,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     capturing: false,
     shortcut: "CommandOrControl+Shift+9",
     shortcutRegistered: true,
-    showShortcut: "CommandOrControl+Alt+D",
+    showShortcut: "CommandOrControl+Shift+0",
     showShortcutRegistered: true,
     currentDraft: null,
     lastDispatch: null,
@@ -35,7 +35,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     readyCount: 0,
     settings: {
       globalShortcut: "CommandOrControl+Shift+9",
-      showWindowShortcut: "CommandOrControl+Alt+D",
+      showWindowShortcut: "CommandOrControl+Shift+0",
       windowPlacement: "cursor",
       windowDisplay: "",
       alwaysOnTop: false,
@@ -134,6 +134,17 @@ describe("App", () => {
     render(<App />);
     expect(await screen.findByTestId("shortcut-conflict-global")).toHaveTextContent(
       "The show-window shortcut is not active",
+    );
+  });
+
+  // Tier A: when both fail the banner names both, not just the capture one.
+  it("names both shortcuts when neither registered", async () => {
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({ shortcutRegistered: false, showShortcutRegistered: false }),
+    );
+    render(<App />);
+    expect(await screen.findByTestId("shortcut-conflict-global")).toHaveTextContent(
+      "The capture and show-window shortcuts are not active",
     );
   });
 

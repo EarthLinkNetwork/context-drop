@@ -501,7 +501,7 @@ window.
   `CommandOrControl+Shift+9`, user-configurable. OFF → start capture;
   ON → stop/finalize. A claim from `/context-drop:pull` also auto-ends capture.
   If shortcut registration fails, the user is told.
-- **Show-window shortcut** (same plugin): default `CommandOrControl+Alt+D`,
+- **Show-window shortcut** (same plugin): default `CommandOrControl+Shift+0`,
   user-configurable, empty = off. Hides the window when it is in front,
   otherwise shows it. A value equal to the capture shortcut is refused and
   reported, never silently shadowing it.

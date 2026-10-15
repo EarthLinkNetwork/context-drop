@@ -16,7 +16,7 @@ mod window;
 
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder};
-use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
@@ -1056,8 +1056,12 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     }
     // Re-register the global shortcuts if either changed (outside the lifecycle
     // lock; this touches the main-thread shortcut registry).
+    // Also retry when one is currently not registered, so saving the same value
+    // again works once the conflicting app is gone.
     let changed = *state.shortcut.lock().unwrap() != sanitized.global_shortcut
-        || *state.show_shortcut.lock().unwrap() != sanitized.show_window_shortcut;
+        || *state.show_shortcut.lock().unwrap() != sanitized.show_window_shortcut
+        || !state.shortcut_registered.load(Ordering::SeqCst)
+        || !state.show_shortcut_registered.load(Ordering::SeqCst);
     if changed {
         register_shortcuts(&app, &sanitized.global_shortcut, &sanitized.show_window_shortcut);
     }
@@ -1073,7 +1077,7 @@ fn list_displays(app: AppHandle) -> Vec<window::DisplayInfo> {
 }
 
 /// Whether two accelerator strings are the same key combination
-/// ("Cmd+Alt+D" and "CommandOrControl+Alt+D" are, on macOS).
+/// ("Cmd+Shift+0" and "CommandOrControl+Shift+0" are, on macOS).
 fn same_shortcut(a: &str, b: &str) -> bool {
     match (a.parse::<Shortcut>(), b.parse::<Shortcut>()) {
         (Ok(a), Ok(b)) => a.id() == b.id(),
@@ -1585,7 +1589,14 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { .. } = event {
+                    // One show per left click (Click fires on press AND release,
+                    // for either button; the right button opens the menu).
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
                         show_main_window(tray.app_handle());
                     }
                 });
@@ -1606,14 +1617,20 @@ pub fn run() {
 fn show_main_window(app: &AppHandle) {
     let app = app.clone();
     thread::spawn(move || {
+        let _one_at_a_time = WINDOW_OP.lock().unwrap();
         let settings = load_settings_or_default(&app);
         window::show(&app, &settings);
     });
 }
 
+/// Serializes show / hide so a quick second shortcut press sees the result of
+/// the first (a show waits up to ~200 ms for its move) instead of racing it.
+static WINDOW_OP: Mutex<()> = Mutex::new(());
+
 /// The show/hide shortcut: hide the window when it is in front, otherwise show
 /// it on the chosen screen. Must run off the main thread (see show_main_window).
 fn toggle_main_window(app: &AppHandle) {
+    let _one_at_a_time = WINDOW_OP.lock().unwrap();
     if window::is_frontmost(app) {
         remember_window_position(app);
         window::hide(app);

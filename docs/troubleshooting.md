@@ -92,7 +92,7 @@ to a free combination. The shortcut is user-configurable. Its behavior:
 Note that a claim from `/context-drop:pull` also auto-ends capture
 (`DRAFT -> CLAIMED`), so you do not always need the shortcut to finalize.
 
-The **show-window shortcut** (default `CommandOrControl+Alt+D`) is separate and
+The **show-window shortcut** (default `CommandOrControl+Shift+0`) is separate and
 is fixed the same way. It cannot be the same combination as the capture
 shortcut (the app reports it as not registered). Leave it empty to turn it off.
 

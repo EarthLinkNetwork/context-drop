@@ -103,7 +103,7 @@ export function SettingsPanel({
           type="text"
           aria-label="Show window shortcut"
           value={showShortcut}
-          placeholder="e.g. CommandOrControl+Alt+D"
+          placeholder="e.g. CommandOrControl+Shift+0"
           disabled={busy}
           onChange={(e) => setShowShortcut(e.target.value)}
         />

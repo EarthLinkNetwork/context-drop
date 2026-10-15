@@ -70,8 +70,12 @@ export function App() {
 
       {(!snap.shortcutRegistered || !snap.showShortcutRegistered) && (
         <p className="warning" role="alert" data-testid="shortcut-conflict-global">
-          {!snap.shortcutRegistered ? "The capture" : "The show-window"} shortcut is not active — it
-          may conflict with another app. Fix it in Settings.
+          {!snap.shortcutRegistered && !snap.showShortcutRegistered
+            ? "The capture and show-window shortcuts are"
+            : !snap.shortcutRegistered
+              ? "The capture shortcut is"
+              : "The show-window shortcut is"}{" "}
+          not active — it may conflict with another app. Fix it in Settings.
         </p>
       )}
 

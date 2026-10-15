@@ -175,6 +175,9 @@ pub fn show(app: &AppHandle, settings: &Settings) {
             wait_until_at(&win, x, y);
         }
     }
+    // Undo a previous app-level hide (see `hide`).
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     let _ = win.unminimize();
     let _ = win.show();
     let _ = win.set_focus();
@@ -190,10 +193,15 @@ pub fn is_frontmost(app: &AppHandle) -> bool {
     })
 }
 
+/// Hide the window and, on macOS, the app too, so keyboard focus goes back to
+/// the app the user was in (hiding only the window of this Dock-less app
+/// would leave it active with no window).
 pub fn hide(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(MAIN) {
         let _ = win.hide();
     }
+    #[cfg(target_os = "macos")]
+    let _ = app.hide();
 }
 
 /// Apply always-on-top and show-on-all-desktops to the main window.

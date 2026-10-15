@@ -20,9 +20,10 @@ pub fn default_global_shortcut() -> String {
 }
 
 /// Default shortcut that shows / hides the window. Distinct from the capture
-/// toggle; an empty value turns it off.
+/// toggle (its neighbour key); an empty value turns it off. NOT Cmd+Option+D:
+/// that is macOS's own "Turn Dock hiding on/off", which would win the press.
 pub fn default_show_window_shortcut() -> String {
-    "CommandOrControl+Alt+D".to_string()
+    "CommandOrControl+Shift+0".to_string()
 }
 
 /// Which screen the window opens on when it is shown (tray click or shortcut).

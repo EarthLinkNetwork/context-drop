@@ -6,7 +6,7 @@ import { SettingsPanel } from "./SettingsPanel";
 
 const settings: Settings = {
   globalShortcut: "CommandOrControl+Shift+9",
-  showWindowShortcut: "CommandOrControl+Alt+D",
+  showWindowShortcut: "CommandOrControl+Shift+0",
   windowPlacement: "cursor",
   windowDisplay: "",
   alwaysOnTop: false,
