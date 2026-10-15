@@ -203,7 +203,10 @@ mod tests {
         assert_eq!(s.window_placement, WindowPlacement::Cursor);
         assert!(!s.always_on_top);
         assert!(!s.show_on_all_desktops);
-        assert!(s.auto_check_updates, "update checks are on unless turned off");
+        assert!(
+            s.auto_check_updates,
+            "update checks are on unless turned off"
+        );
     }
 
     // Tier A: settings decoding of the window fields.
