@@ -23,6 +23,7 @@ pub mod packet;
 pub mod placement;
 pub mod project;
 pub mod settings;
+pub mod shortcuts;
 pub mod storage;
 
 // Curated top-level re-exports for ergonomic use by the CLI and desktop app.

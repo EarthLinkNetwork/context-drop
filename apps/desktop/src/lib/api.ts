@@ -49,10 +49,12 @@ export interface IntegrationStatus {
 export type WindowPlacement = "cursor" | "display" | "last";
 
 export interface Settings {
-  /** Toggles Capture ON/OFF. */
+  /** Toggles Capture ON/OFF. Empty = off. */
   globalShortcut: string;
   /** Shows / hides the window. Empty = off. */
   showWindowShortcut: string;
+  /** Toggles Always on Top. Empty = off. */
+  onTopShortcut: string;
   windowPlacement: WindowPlacement;
   /** Key of the chosen display (DisplayInfo.key) for "display" placement. */
   windowDisplay: string;
@@ -67,12 +69,8 @@ export interface Settings {
 
 export interface AppSnapshot {
   capturing: boolean;
-  shortcut: string;
-  /** False when the global shortcut could not be registered (conflict). */
-  shortcutRegistered: boolean;
-  showShortcut: string;
-  /** False when a non-empty show-window shortcut could not be registered. */
-  showShortcutRegistered: boolean;
+  /** Each global shortcut's status (capture, window, onTop). */
+  shortcuts: ShortcutStatus[];
   currentDraft: CurrentDraft | null;
   lastDispatch: LastDispatchInfo | null;
   /** Recent dispatches, newest first (up to 10). */
@@ -86,6 +84,17 @@ export interface AppSnapshot {
   notice: string | null;
   /** The running app's version (e.g. "0.1.6"). */
   appVersion: string;
+}
+
+export type ShortcutActionId = "capture" | "window" | "onTop";
+
+export interface ShortcutStatus {
+  action: ShortcutActionId;
+  accelerator: string;
+  /** off | active | failed (the OS refused it) | invalid | duplicate */
+  state: "off" | "active" | "failed" | "invalid" | "duplicate";
+  /** For "duplicate": the action that already uses the key. */
+  duplicateOf: string | null;
 }
 
 /** A connected display, for the "Open window on" picker. */
@@ -112,6 +121,11 @@ export const api = {
   undoLast: () => invoke<string>("undo_last"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
   listDisplays: () => invoke<DisplayInfo[]>("list_displays"),
+  /** Save only the given fields (auto-save); returns the settings as saved. */
+  updateSettings: (patch: Partial<Settings>) => invoke<Settings>("update_settings", { patch }),
+  /** While recording, a press of a registered shortcut is sent as an event. */
+  beginRecording: () => invoke<void>("begin_recording"),
+  endRecording: () => invoke<void>("end_recording"),
   installIntegration: (configDir?: string) =>
     invoke<string>("install_integration", { configDir: configDir ?? null }),
   installShortAlias: (configDir?: string) =>

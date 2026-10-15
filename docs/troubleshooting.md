@@ -83,8 +83,10 @@ shortcut registration failed.
 Tauri 2 global-shortcut plugin) is already claimed by another application or by
 the OS. When registration fails, the app tells you — it does not fail silently.
 
-**Fix.** Open the tray/menu-bar **Settings** and change the **global shortcut**
-to a free combination. The shortcut is user-configurable. Its behavior:
+**Fix.** Open **Settings → Shortcuts**, choose **Change** next to the shortcut
+and press a free combination (it must include ⌘, ⌃ or ⌥ — Ctrl or Alt on
+Windows/Linux; Esc cancels). It is saved and active at once. **Clear** turns a
+shortcut off; **Reset** puts the default back. The capture shortcut's behavior:
 
 - When Capture is OFF, the shortcut **starts** capture.
 - When Capture is ON, the shortcut **stops/finalizes** the packet.
@@ -92,9 +94,13 @@ to a free combination. The shortcut is user-configurable. Its behavior:
 Note that a claim from `/context-drop:pull` also auto-ends capture
 (`DRAFT -> CLAIMED`), so you do not always need the shortcut to finalize.
 
-The **show-window shortcut** (default `CommandOrControl+Shift+0`) is separate and
-is fixed the same way. It cannot be the same combination as the capture
-shortcut (the app reports it as not registered). Leave it empty to turn it off.
+The **show / hide window** (default `CommandOrControl+Shift+0`) and **Always on
+Top** (default `CommandOrControl+Shift+8`) shortcuts are fixed the same way. Two
+shortcuts cannot share a combination: the app refuses it while you record, and
+reports an older duplicate as "not active".
+
+Some combinations can't be recorded on macOS because the app's own menu or the
+system takes them first: ⌘Q, ⌘W, ⌘H, ⌘M, ⌘C/V/X/A/Z, ⌘Tab, ⌘Space, ⌘⇧3/4/5.
 
 ---
 

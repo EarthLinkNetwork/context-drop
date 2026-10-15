@@ -207,6 +207,7 @@ impl Db {
             match k.as_str() {
                 "globalShortcut" => s.global_shortcut = v,
                 "showWindowShortcut" => s.show_window_shortcut = v,
+                "onTopShortcut" => s.on_top_shortcut = v,
                 "windowPlacement" => {
                     s.window_placement = WindowPlacement::parse(&v).unwrap_or(s.window_placement)
                 }
@@ -230,6 +231,7 @@ impl Db {
         let pairs = [
             ("globalShortcut", s.global_shortcut.clone()),
             ("showWindowShortcut", s.show_window_shortcut.clone()),
+            ("onTopShortcut", s.on_top_shortcut.clone()),
             ("windowPlacement", s.window_placement.as_str().to_string()),
             ("windowDisplay", s.window_display.clone()),
             ("alwaysOnTop", s.always_on_top.to_string()),
@@ -248,6 +250,20 @@ impl Db {
             )?;
         }
         Ok(())
+    }
+
+    /// Whether a setting key has ever been saved (vs. falling back to its
+    /// default) — used to migrate a newly added setting once.
+    pub fn has_setting(&self, key: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM settings WHERE key = ?1",
+                params![key],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     /// Set only the always-on-top flag (the tray toggle), leaving every other
@@ -545,6 +561,34 @@ mod tests {
         assert_eq!(loaded.window_display, "DELL U2720Q@1512,0");
         assert!(loaded.always_on_top);
         assert!(loaded.show_on_all_desktops);
+    }
+
+    // Tier A: a cleared (empty = off) shortcut survives a reload for all
+    // three, including Capture (before v0.1.9 an empty one became the default).
+    #[test]
+    fn cleared_shortcuts_stay_off_after_reload() {
+        let db = Db::open_in_memory().unwrap();
+        let s = Settings {
+            global_shortcut: String::new(),
+            show_window_shortcut: String::new(),
+            on_top_shortcut: String::new(),
+            ..Settings::default()
+        };
+        db.save_settings(&s).unwrap();
+        let loaded = db.load_settings().unwrap();
+        assert_eq!(loaded.global_shortcut, "");
+        assert_eq!(loaded.show_window_shortcut, "");
+        assert_eq!(loaded.on_top_shortcut, "");
+    }
+
+    // Tier A: has_setting tells "never saved" from "saved" (the v0.1.9
+    // migration of the new Always on Top shortcut depends on it).
+    #[test]
+    fn has_setting_tells_saved_from_default() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(!db.has_setting("onTopShortcut").unwrap());
+        db.save_settings(&Settings::default()).unwrap();
+        assert!(db.has_setting("onTopShortcut").unwrap());
     }
 
     // Tier A: the tray toggle writes only its own key; the user's other

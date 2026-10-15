@@ -516,3 +516,83 @@ body {
   padding: 8px 14px;
   border-radius: 8px;
 }
+
+/* Settings: section tabs inside the Settings tab. */
+.subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.subtab {
+  border: 1px solid #3a3a42;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.subtab:hover {
+  color: var(--text);
+}
+.subtab.is-active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 600;
+}
+.subtab-panel[hidden] {
+  display: none;
+}
+.autosave-note {
+  margin: 0 0 8px;
+}
+
+/* Settings → Shortcuts: one row per global shortcut. */
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.shortcut-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.shortcut-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.shortcut-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.shortcut-keys {
+  min-width: 96px;
+  padding: 3px 8px;
+  border: 1px solid #3a3a42;
+  border-radius: 4px;
+  background: #1c1c20;
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+.shortcut-keys.is-recording {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.hint-warn {
+  color: var(--danger);
+}
+.saved-mark {
+  color: #6ee7a8;
+  font-size: 11px;
+  font-weight: 600;
+}
