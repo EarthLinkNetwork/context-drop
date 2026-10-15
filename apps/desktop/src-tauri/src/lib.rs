@@ -12,10 +12,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod updater;
 mod window;
 
 use serde::Serialize;
-use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder};
+use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -219,6 +220,8 @@ struct AppSnapshot {
     notice: Option<String>,
     /// The running app's version (from tauri.conf.json), shown in the UI.
     app_version: String,
+    /// In-app updates: what was found, download progress, errors.
+    update: updater::UpdateStatus,
 }
 
 // ---- Helpers ------------------------------------------------------------
@@ -362,6 +365,7 @@ fn build_snapshot(app: &AppHandle) -> Result<AppSnapshot, String> {
         marketplace_github: integration::MARKETPLACE_GITHUB.to_string(),
         notice,
         app_version: app.package_info().version.to_string(),
+        update: app.state::<updater::Updates>().status(),
     })
 }
 
@@ -1462,11 +1466,13 @@ fn open_data_folder(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn privacy_info() -> String {
-    "Context Drop is local-only: no telemetry, analytics, or cloud backend, and it transmits \
-     nothing over the network. The clipboard is watched only while Capture is ON (or read once \
-     when you press Capture Clipboard Now). The only \
-     time packet content leaves your machine is when Claude Code itself sends it to its configured \
-     model provider as the isolated subagent reads it."
+    "Context Drop keeps your packets on this machine: no cloud backend, no telemetry or analytics \
+     beyond the anonymous update check. Its only network use is checking GitHub for a newer \
+     release (at launch and about once a day, unless you turn it off in Settings → Advanced) and \
+     downloading one when you choose Install; no identifiers or packet data are sent. The \
+     clipboard is watched only while Capture is ON (or read once when you press Capture Clipboard \
+     Now). The only time packet content leaves your machine is when Claude Code itself sends it \
+     to its configured model provider as the isolated subagent reads it."
         .to_string()
 }
 
@@ -1524,6 +1530,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -1576,6 +1583,7 @@ pub fn run() {
                 .build(),
         )
         .manage(AppState::new(storage))
+        .manage(updater::Updates::default())
         // Closing the window must NOT quit this tray utility — hide it instead,
         // so the tray icon, global shortcut, and capture keep running. The same
         // handler also receives OS drag-and-drop: dropped files are captured
@@ -1639,6 +1647,8 @@ pub fn run() {
             update_settings,
             begin_recording,
             end_recording,
+            updater::check_for_updates,
+            updater::install_update,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -1757,6 +1767,12 @@ pub fn run() {
                 .checked(settings.always_on_top)
                 .build(&handle)?;
             *handle.state::<AppState>().on_top_item.lock().unwrap() = Some(on_top.clone());
+            let update_item = MenuItemBuilder::with_id(updater::TRAY_ITEM_ID, "Check for Updates…")
+                .enabled(cfg!(target_os = "macos"))
+                .build(&handle)?;
+            handle
+                .state::<updater::Updates>()
+                .set_tray_item(update_item.clone());
             let menu = MenuBuilder::new(&handle)
                 .text("toggle", "Start / Stop Capture")
                 .text("clear", "Clear Packet")
@@ -1766,6 +1782,7 @@ pub fn run() {
                 .text("show", "Show Window")
                 .item(&on_top)
                 .separator()
+                .item(&update_item)
                 .text("quit", "Quit Context Drop")
                 .build()?;
 
@@ -1794,6 +1811,7 @@ pub fn run() {
                     }
                     "show" => show_main_window(app),
                     "on_top" => toggle_always_on_top(app, OnTopSource::Tray),
+                    updater::TRAY_ITEM_ID => updater::on_tray_item(app, show_main_window),
                     "quit" => {
                         remember_window_position(app);
                         app.exit(0);
@@ -1816,6 +1834,11 @@ pub fn run() {
                 tray = tray.icon(icon);
             }
             tray.build(app)?;
+
+            // Automatic update checks (Settings → Advanced → Updates).
+            updater::spawn_automatic_checks(handle.clone(), |app| {
+                load_settings_or_default(app).auto_check_updates
+            });
 
             Ok(())
         })

@@ -45,6 +45,8 @@ interface Props {
   onOpenDataFolder: () => void;
   /** The Claude Code setup panel (rendered in its own tab). */
   claudeSetup: ReactNode;
+  /** Settings → Advanced → Updates: version, Check for Updates, the result. */
+  updates: ReactNode;
 }
 
 const TABS: { id: SettingsTab; label: string }[] = [
@@ -104,6 +106,7 @@ export function SettingsView(props: Props) {
           save={save}
           savedKey={savedKey}
           onOpenDataFolder={props.onOpenDataFolder}
+          updates={props.updates}
         />
       </div>
     </section>
@@ -301,14 +304,27 @@ function AdvancedTab({
   save,
   savedKey,
   onOpenDataFolder,
+  updates,
 }: {
   settings: Settings;
   save: Save;
   savedKey: string | null;
   onOpenDataFolder: () => void;
+  updates: ReactNode;
 }) {
   return (
     <div>
+      <h3 className="settings-section-title">Updates</h3>
+      <Toggle
+        label="Check for updates automatically"
+        text="Check for updates automatically (at launch and about once a day)"
+        checked={settings.autoCheckUpdates}
+        saved={savedKey === "autoCheckUpdates"}
+        onChange={(v) => save({ autoCheckUpdates: v }, "autoCheckUpdates")}
+      />
+      {updates}
+
+      <h3 className="settings-section-title">Packets</h3>
       <NumberSetting
         label="Packet TTL (hours)"
         value={settings.packetTtlHours}
@@ -344,10 +360,14 @@ function AdvancedTab({
       <details className="privacy-info">
         <summary>Privacy information</summary>
         <p>
-          Context Drop is local-only. It has no telemetry, analytics, or cloud backend, and it
-          transmits nothing over the network. Clipboard items are captured only while Capture is
-          ON. The only time packet content leaves your machine is when Claude Code itself sends it
-          to its configured model provider as the isolated subagent reads it.
+          Context Drop keeps your packets on this machine. It has no cloud backend, and no
+          telemetry or analytics beyond the anonymous update check: its only network use is
+          reading the latest release&apos;s manifest from GitHub (at launch and about once a day,
+          unless you turn it off above) and downloading an update when you choose Install. No
+          identifiers or packet data are sent; GitHub sees your IP address, and the maintainers
+          see only GitHub&apos;s public per-file download counts. Clipboard items are captured only
+          while Capture is ON. The only time packet content leaves your machine is when Claude
+          Code itself sends it to its configured model provider as the isolated subagent reads it.
         </p>
       </details>
     </div>

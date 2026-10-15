@@ -25,6 +25,7 @@ pub mod project;
 pub mod settings;
 pub mod shortcuts;
 pub mod storage;
+pub mod updates;
 
 // Curated top-level re-exports for ergonomic use by the CLI and desktop app.
 pub use claim::{

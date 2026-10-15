@@ -6,6 +6,8 @@ import { ItemModal } from "../features/packets/ItemModal";
 import { LastDispatch } from "../features/dispatch/LastDispatch";
 import { InstallationPanel } from "../features/settings/InstallationPanel";
 import { SettingsView, type SettingsTab } from "../features/settings/SettingsView";
+import { UpdateBanner } from "../features/updates/UpdateBanner";
+import { UpdatesPanel } from "../features/updates/UpdatesPanel";
 import { detectPlatform } from "../lib/accelerator";
 import { onBackendEvent } from "../lib/events";
 import { api } from "../lib/api";
@@ -104,6 +106,12 @@ export function App() {
         </p>
       )}
 
+      <UpdateBanner
+        update={snap.update}
+        capturing={snap.capturing}
+        onInstall={() => void state.installUpdate()}
+      />
+
       {brokenShortcuts.length > 0 && (
         <p className="warning" role="alert" data-testid="shortcut-conflict-global">
           {brokenShortcuts.length === 1
@@ -193,6 +201,14 @@ export function App() {
           onEndRecording={endRecording}
           subscribeRecording={subscribeRecording}
           onOpenDataFolder={() => void state.openDataFolder()}
+          updates={
+            <UpdatesPanel
+              appVersion={snap.appVersion}
+              update={snap.update}
+              onCheck={() => void state.checkForUpdates()}
+              onInstall={() => void state.installUpdate()}
+            />
+          }
           claudeSetup={
             <InstallationPanel
               integrations={snap.integrations}

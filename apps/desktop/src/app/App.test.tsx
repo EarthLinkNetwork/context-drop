@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   updateSettings: vi.fn(),
   beginRecording: vi.fn().mockResolvedValue(undefined),
   endRecording: vi.fn().mockResolvedValue(undefined),
+  checkForUpdates: vi.fn(),
+  installUpdate: vi.fn(),
 }));
 
 vi.mock("../lib/api", () => ({ api: mocks }));
@@ -58,11 +60,24 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
       maxPacketBytes: 200 * 1024 * 1024,
       autoCleanup: true,
       shortAliasInstalled: false,
+      autoCheckUpdates: true,
     },
     integrations: [],
     marketplaceGithub: "EarthLinkNetwork/context-drop",
     notice: null,
     appVersion: "9.9.9",
+    update: {
+      state: "idle",
+      version: null,
+      notes: null,
+      downloaded: 0,
+      total: null,
+      error: null,
+      errorDuring: null,
+      checkedAt: null,
+      blockedReason: null,
+      supported: true,
+    },
     ...overrides,
   };
 }
@@ -75,6 +90,32 @@ beforeEach(() => {
 });
 
 describe("App", () => {
+  // Tier A: an update found by the backend shows the banner; Install installs.
+  it("shows a found update and installs it on request", async () => {
+    mocks.installUpdate.mockResolvedValue(undefined);
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({
+        update: { ...snapshot().update, state: "available", version: "0.1.11" },
+      }),
+    );
+    render(<App />);
+    const banner = await screen.findByTestId("update-banner");
+    expect(banner).toHaveTextContent("v0.1.11 is available");
+    await userEvent.click(screen.getByRole("button", { name: "Install & Restart" }));
+    await waitFor(() => expect(mocks.installUpdate).toHaveBeenCalledOnce());
+  });
+
+  // Tier A: Settings → Advanced → Check for Updates calls the backend.
+  it("checks for updates from Settings", async () => {
+    mocks.checkForUpdates.mockResolvedValue(snapshot().update);
+    mocks.getSnapshot.mockResolvedValue(snapshot());
+    render(<App />);
+    await userEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Advanced" }));
+    await userEvent.click(screen.getByRole("button", { name: "Check for Updates" }));
+    await waitFor(() => expect(mocks.checkForUpdates).toHaveBeenCalledOnce());
+  });
+
   it("renders the capturing state and item count", async () => {
     mocks.getSnapshot.mockResolvedValue(
       snapshot({
