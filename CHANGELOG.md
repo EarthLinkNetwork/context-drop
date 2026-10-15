@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-15
+
+### Added
+
+- **Always on Top shortcut** (default `CommandOrControl+Shift+8`): toggles
+  Always on Top from any app, in sync with the menu-bar item and Settings.
+- **Set shortcuts by pressing them.** In Settings → Shortcuts, choose
+  **Change** and press the combination you want — no more typing
+  `CommandOrControl+...`. **Clear** turns a shortcut off, **Reset** restores
+  the default. A combination must include ⌘, ⌃ or ⌥ (Ctrl or Alt on
+  Windows/Linux), so Enter or a letter can never become a global shortcut; Esc
+  cancels. Pressing a current shortcut while recording records it instead of
+  running it. A combination another shortcut already uses is refused.
+
+### Changed
+
+- **Settings are split into tabs** — Shortcuts, Window, Claude Code and
+  Advanced (packet TTL, size limits, auto cleanup, data folder, privacy).
+- **Settings save automatically**; the Save Settings button is gone. Shortcuts
+  save when recorded, checkboxes and choices when changed, numbers when you
+  leave the field (or press Enter) — an invalid number goes back to the saved
+  value. A short "Saved" mark confirms each change. Each change saves only its
+  own field, so it can't undo a change made from the menu-bar menu.
+- The capture shortcut can now be turned off too (Clear).
+- The shortcut warning banner names each shortcut that is set but not working
+  (an off shortcut is not a problem).
+
 ## [0.1.8] - 2026-10-15
 
 ### Added

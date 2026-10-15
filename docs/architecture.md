@@ -492,19 +492,35 @@ window.
   Now (one-shot read of the current clipboard); Current Packet (item count,
   recent items), Clear Packet; Recent Dispatches (last 10: project, the pull
   instruction as a note, terminal tab, session, account, cwd, item count, time;
-  Undo on the newest); Settings (capture
-  shortcut, show-window shortcut, which screen the window opens on, always on
-  top, show on all desktops, TTL, file size limit, packet size limit, Claude integration
-  status/list, Install integration, Install `/cd` alias, Open data folder,
-  Privacy info).
-- **Global shortcut** (Tauri 2 `global-shortcut` plugin): default
-  `CommandOrControl+Shift+9`, user-configurable. OFF → start capture;
-  ON → stop/finalize. A claim from `/context-drop:pull` also auto-ends capture.
-  If shortcut registration fails, the user is told.
-- **Show-window shortcut** (same plugin): default `CommandOrControl+Shift+0`,
-  user-configurable, empty = off. Hides the window when it is in front,
-  otherwise shows it. A value equal to the capture shortcut is refused and
-  reported, never silently shadowing it.
+  Undo on the newest); Settings, split into tabs and saved automatically (no
+  Save button; one field per `update_settings` patch, applied by the backend on
+  top of the SAVED settings so a change from the tray is never undone):
+  Shortcuts (capture, show/hide window, Always on Top — each set by recording a
+  key combination, with Clear = off and Reset = default), Window (which screen
+  the window opens on, always on top, show on all desktops), Claude Code
+  (integration status/list, Install integration, Install `/cd` alias) and
+  Advanced (TTL, file size limit, packet size limit, auto cleanup, Open data
+  folder, Privacy info).
+- **Global shortcuts** (Tauri 2 `global-shortcut` plugin), each user-settable
+  and each may be off (empty):
+  - Capture (default `CommandOrControl+Shift+9`): OFF → start capture; ON →
+    stop/finalize. A claim from `/context-drop:pull` also auto-ends capture.
+  - Show / hide window (default `CommandOrControl+Shift+0`): hides the window
+    when it is in front, otherwise shows it.
+  - Always on Top (default `CommandOrControl+Shift+8`): toggles it.
+  Which of them get registered, and which action a press routes to, is pure
+  (`context_drop_core::shortcuts`): the same key combination (by
+  `Shortcut::id()`) for two actions is refused for the later one in the order
+  Capture → window → Always on Top and reported as "duplicate", never shadowing
+  the earlier one; only registered keys route. A failed registration is
+  reported in Settings and in a banner. **Recording a new key** keeps every
+  shortcut registered: while the UI records (`begin_recording`, ends by itself
+  after 20 s, on focus loss or on `end_recording`), a press of a registered
+  shortcut is forwarded to the UI (`cd:shortcut-pressed`) instead of acting;
+  other keys arrive as WebView keydowns. Only combinations with Cmd/Ctrl/Option
+  are accepted, so Enter or a letter can never become a global shortcut; Esc
+  cancels. Registration happens only on the main thread (startup and the
+  sync settings commands).
 - **Window placement** (tray click, tray "Show Window", show-window shortcut):
   "the screen with the mouse pointer" (default; a tray click therefore opens
   under the clicked screen's menu-bar icon), "a specific display" (falls back to
@@ -519,8 +535,9 @@ window.
   (accessory) app, so these settings replace it: "All Desktops" maps to
   "show on all desktops" (`NSWindowCollectionBehaviorCanJoinAllSpaces`), and a
   per-display assignment to "a specific display".
-- **Always on top**: Settings checkbox and tray "Always on Top" check item, one
-  persisted setting kept in sync between them.
+- **Always on top**: Settings checkbox, tray "Always on Top" check item and its
+  global shortcut — one persisted setting (the tray/shortcut write only the
+  `alwaysOnTop` key) kept in sync between them.
 
 Privacy is visible by design: when Capture is ON the tray indicator is
 obviously active, and capture never silently stays ON.

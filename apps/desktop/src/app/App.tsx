@@ -5,16 +5,40 @@ import { CurrentPacket } from "../features/packets/CurrentPacket";
 import { ItemModal } from "../features/packets/ItemModal";
 import { LastDispatch } from "../features/dispatch/LastDispatch";
 import { InstallationPanel } from "../features/settings/InstallationPanel";
-import { SettingsPanel } from "../features/settings/SettingsPanel";
+import { SettingsView, type SettingsTab } from "../features/settings/SettingsView";
+import { detectPlatform } from "../lib/accelerator";
+import { onBackendEvent } from "../lib/events";
 import { api } from "../lib/api";
-import type { RecentItem } from "../lib/api";
+import type { RecentItem, ShortcutActionId } from "../lib/api";
 import { useAppState } from "../lib/useAppState";
+
+const PLATFORM = detectPlatform();
+
+const SHORTCUT_LABEL: Record<ShortcutActionId, string> = {
+  capture: "Start / Stop Capture",
+  window: "Show / hide window",
+  onTop: "Always on Top",
+};
+
+/** Backend events while a shortcut is being recorded (see ShortcutRecorder). */
+function subscribeRecording(
+  onShortcutPressed: (accelerator: string) => void,
+  onRecordingEnded: () => void,
+): () => void {
+  const a = onBackendEvent<string>("cd:shortcut-pressed", onShortcutPressed);
+  const b = onBackendEvent<null>("cd:recording-ended", onRecordingEnded);
+  return () => {
+    a();
+    b();
+  };
+}
 
 /** The Context Drop popover UI. */
 export function App() {
   const state = useAppState();
   const [message, setMessage] = useState<string | null>(null);
   const [tab, setTab] = useState<"capture" | "settings">("capture");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("shortcuts");
   const [openItem, setOpenItem] = useState<RecentItem | null>(null);
 
   if (state.loading && !state.snapshot) {
@@ -42,6 +66,10 @@ export function App() {
   }
 
   const itemCount = snap.currentDraft?.itemCount ?? 0;
+  // Shortcuts that are set but not working (an "off" one is not a problem).
+  const brokenShortcuts = snap.shortcuts
+    .filter((s) => s.state === "failed" || s.state === "duplicate" || s.state === "invalid")
+    .map((s) => SHORTCUT_LABEL[s.action]);
 
   return (
     <main className={state.dragOver ? "app is-dragover" : "app"}>
@@ -68,21 +96,26 @@ export function App() {
         </p>
       )}
 
-      {(!snap.shortcutRegistered || !snap.showShortcutRegistered) && (
+      {brokenShortcuts.length > 0 && (
         <p className="warning" role="alert" data-testid="shortcut-conflict-global">
-          {!snap.shortcutRegistered && !snap.showShortcutRegistered
-            ? "The capture and show-window shortcuts are"
-            : !snap.shortcutRegistered
-              ? "The capture shortcut is"
-              : "The show-window shortcut is"}{" "}
-          not active — it may conflict with another app. Fix it in Settings.
+          {brokenShortcuts.length === 1
+            ? `The “${brokenShortcuts[0]}” shortcut is`
+            : `The ${brokenShortcuts.map((l) => `“${l}”`).join(" and ")} shortcuts are`}{" "}
+          not active. Fix it in Settings → Shortcuts.
         </p>
       )}
 
       {!snap.integrations.some((i) => i.enabled) && (
         <div className="setup-banner" data-testid="setup-banner">
           <span>⚙️ Finish setup — install the Context Drop plugin in Claude Code.</span>
-          <button type="button" className="btn btn-small" onClick={() => setTab("settings")}>
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={() => {
+              setTab("settings");
+              setSettingsTab("claude");
+            }}
+          >
             Open Setup
           </button>
         </div>
@@ -139,35 +172,40 @@ export function App() {
       </div>
 
       <div className="tab-panel" hidden={tab !== "settings"}>
-        <InstallationPanel
-          integrations={snap.integrations}
-          marketplaceGithub={snap.marketplaceGithub}
-          shortAliasInstalled={snap.settings.shortAliasInstalled}
-          busy={state.busy}
-          onInstallIntegration={(dir) => {
-            // Clear any stale banner first, then show the outcome. On failure the
-            // detailed error also appears in the error banner (see useAppState).
-            setMessage(null);
-            void state
-              .installIntegration(dir)
-              .then((r) => setMessage(r ?? "Integration install failed — see the error above."));
-          }}
-          onInstallShortAlias={() => {
-            setMessage(null);
-            void state
-              .installShortAlias()
-              .then((r) => setMessage(r ?? "Short alias install failed — see the error above."));
-          }}
-        />
-
-        <SettingsPanel
+        <SettingsView
+          tab={settingsTab}
+          onTabChange={setSettingsTab}
           settings={snap.settings}
-          shortcutRegistered={snap.shortcutRegistered}
-          showShortcutRegistered={snap.showShortcutRegistered}
-          busy={state.busy}
-          onSave={(s) => void state.saveSettings(s)}
-          onOpenDataFolder={() => void state.openDataFolder()}
+          shortcuts={snap.shortcuts}
+          platform={PLATFORM}
+          onPatch={state.updateSettings}
           onListDisplays={api.listDisplays}
+          onBeginRecording={() => void api.beginRecording().catch(() => undefined)}
+          onEndRecording={() => void api.endRecording().catch(() => undefined)}
+          subscribeRecording={subscribeRecording}
+          onOpenDataFolder={() => void state.openDataFolder()}
+          claudeSetup={
+            <InstallationPanel
+              integrations={snap.integrations}
+              marketplaceGithub={snap.marketplaceGithub}
+              shortAliasInstalled={snap.settings.shortAliasInstalled}
+              busy={state.busy}
+              onInstallIntegration={(dir) => {
+                // Clear any stale banner first, then show the outcome. On failure the
+                // detailed error also appears in the error banner (see useAppState).
+                setMessage(null);
+                void state
+                  .installIntegration(dir)
+                  .then((r) => setMessage(r ?? "Integration install failed — see the error above."));
+              }}
+              onInstallShortAlias={() => {
+                setMessage(null);
+                void state
+                  .installShortAlias()
+                  .then((r) => setMessage(r ?? "Short alias install failed — see the error above."));
+              }}
+            />
+          }
         />
       </div>
 

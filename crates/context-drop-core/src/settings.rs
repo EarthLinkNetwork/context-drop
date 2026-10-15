@@ -26,6 +26,12 @@ pub fn default_show_window_shortcut() -> String {
     "CommandOrControl+Shift+0".to_string()
 }
 
+/// Default shortcut that toggles Always on Top (next to the capture 9 and the
+/// show-window 0 keys; not used by macOS's own shortcuts).
+pub fn default_on_top_shortcut() -> String {
+    "CommandOrControl+Shift+8".to_string()
+}
+
 /// Which screen the window opens on when it is shown (tray click or shortcut).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,10 +68,12 @@ impl WindowPlacement {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
-    /// Toggles Capture ON/OFF.
+    /// Toggles Capture ON/OFF. Empty = off.
     pub global_shortcut: String,
     /// Shows / hides the window. Empty = off.
     pub show_window_shortcut: String,
+    /// Toggles Always on Top. Empty = off.
+    pub on_top_shortcut: String,
     pub window_placement: WindowPlacement,
     /// Key of the display chosen for `WindowPlacement::Display`
     /// (see `placement::display_key`). Empty = none chosen yet.
@@ -88,6 +96,7 @@ impl Default for Settings {
         Settings {
             global_shortcut: default_global_shortcut(),
             show_window_shortcut: default_show_window_shortcut(),
+            on_top_shortcut: default_on_top_shortcut(),
             window_placement: WindowPlacement::Cursor,
             window_display: String::new(),
             always_on_top: false,
@@ -104,11 +113,11 @@ impl Default for Settings {
 impl Settings {
     /// Clamp obviously invalid values to safe defaults (never crash on bad input).
     pub fn sanitized(mut self) -> Settings {
-        if self.global_shortcut.trim().is_empty() {
-            self.global_shortcut = default_global_shortcut();
-        }
+        // Every shortcut may be empty (= off); a key that was never saved gets
+        // its default from `Default`, not from here.
         self.global_shortcut = self.global_shortcut.trim().to_string();
         self.show_window_shortcut = self.show_window_shortcut.trim().to_string();
+        self.on_top_shortcut = self.on_top_shortcut.trim().to_string();
         if self.packet_ttl_hours == 0 {
             self.packet_ttl_hours = DEFAULT_TTL_HOURS;
         }
@@ -123,6 +132,30 @@ impl Settings {
             self.max_item_bytes = self.max_packet_bytes;
         }
         self
+    }
+
+    /// Apply a partial update (camelCase keys, as the UI sends one changed
+    /// field at a time) on top of these settings. Unknown keys and wrong value
+    /// types are rejected; the result is sanitized. Fields not in `patch` keep
+    /// their current value, so a change made elsewhere (e.g. the tray) is not
+    /// undone by a stale copy in the UI.
+    pub fn with_patch(&self, patch: &serde_json::Value) -> Result<Settings, String> {
+        let serde_json::Value::Object(fields) = patch else {
+            return Err("settings patch must be an object".into());
+        };
+        let mut merged = serde_json::to_value(self).map_err(|e| e.to_string())?;
+        let obj = merged
+            .as_object_mut()
+            .ok_or_else(|| "settings did not serialize to an object".to_string())?;
+        for (k, v) in fields {
+            if !obj.contains_key(k) {
+                return Err(format!("unknown setting: {k}"));
+            }
+            obj.insert(k.clone(), v.clone());
+        }
+        serde_json::from_value::<Settings>(merged)
+            .map(Settings::sanitized)
+            .map_err(|e| format!("invalid setting value: {e}"))
     }
 
     /// The size limits derived from these settings.
@@ -161,6 +194,8 @@ mod tests {
         assert!(!s.short_alias_installed);
         assert!(!s.global_shortcut.is_empty());
         assert_ne!(s.show_window_shortcut, s.global_shortcut);
+        assert_ne!(s.on_top_shortcut, s.global_shortcut);
+        assert_ne!(s.on_top_shortcut, s.show_window_shortcut);
         assert_eq!(s.window_placement, WindowPlacement::Cursor);
         assert!(!s.always_on_top);
         assert!(!s.show_on_all_desktops);
@@ -188,6 +223,7 @@ mod tests {
             "maxItemBytes":1,"maxPacketBytes":2,"autoCleanup":true,"shortAliasInstalled":false}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.show_window_shortcut, default_show_window_shortcut());
+        assert_eq!(s.on_top_shortcut, default_on_top_shortcut());
         assert_eq!(s.window_placement, WindowPlacement::Cursor);
     }
 
@@ -202,13 +238,52 @@ mod tests {
             ..Settings::default()
         }
         .sanitized();
-        assert_eq!(s.global_shortcut, default_global_shortcut());
-        // An empty show-window shortcut means "off" and stays empty.
+        // An empty shortcut means "off" and stays empty (any of the three).
+        assert_eq!(s.global_shortcut, "");
         assert_eq!(s.show_window_shortcut, "");
         assert_eq!(s.packet_ttl_hours, 24);
         assert!(s.max_item_bytes > 0);
         assert!(s.max_packet_bytes > 0);
         assert!(s.max_item_bytes <= s.max_packet_bytes);
+    }
+
+    // Tier A: a patch changes only its own fields and keeps the rest (the
+    // auto-save must not undo a change made elsewhere, e.g. from the tray).
+    #[test]
+    fn patch_changes_only_given_fields() {
+        let base = Settings {
+            always_on_top: true,
+            packet_ttl_hours: 48,
+            ..Settings::default()
+        };
+        let s = base
+            .with_patch(&serde_json::json!({ "showOnAllDesktops": true, "onTopShortcut": "" }))
+            .unwrap();
+        assert!(s.show_on_all_desktops);
+        assert_eq!(s.on_top_shortcut, "");
+        assert!(s.always_on_top, "untouched field kept");
+        assert_eq!(s.packet_ttl_hours, 48, "untouched field kept");
+    }
+
+    // Tier A: bad patches are refused, never half-applied; values are sanitized.
+    #[test]
+    fn patch_rejects_unknown_keys_and_bad_types_and_sanitizes() {
+        let base = Settings::default();
+        assert!(base.with_patch(&serde_json::json!({ "bogus": 1 })).is_err());
+        assert!(base
+            .with_patch(&serde_json::json!({ "packetTtlHours": "x" }))
+            .is_err());
+        assert!(base.with_patch(&serde_json::json!([1])).is_err());
+        let s = base
+            .with_patch(&serde_json::json!({ "packetTtlHours": 0 }))
+            .unwrap();
+        assert_eq!(s.packet_ttl_hours, DEFAULT_TTL_HOURS);
+        let s = base
+            .with_patch(
+                &serde_json::json!({ "windowPlacement": "display", "windowDisplay": "X@0,0" }),
+            )
+            .unwrap();
+        assert_eq!(s.window_placement, WindowPlacement::Display);
     }
 
     #[test]

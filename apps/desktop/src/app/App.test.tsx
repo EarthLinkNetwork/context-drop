@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppSnapshot } from "../lib/api";
+import type { AppSnapshot, ShortcutStatus } from "../lib/api";
 import { App } from "./App";
 
 // Mock the whole command surface so the UI runs without a Tauri backend.
@@ -18,17 +18,29 @@ const mocks = vi.hoisted(() => ({
   openDataFolder: vi.fn(),
   privacyInfo: vi.fn(),
   listDisplays: vi.fn().mockResolvedValue([]),
+  updateSettings: vi.fn(),
+  beginRecording: vi.fn().mockResolvedValue(undefined),
+  endRecording: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../lib/api", () => ({ api: mocks }));
 
+function shortcut(
+  action: ShortcutStatus["action"],
+  accelerator: string,
+  state: ShortcutStatus["state"] = "active",
+): ShortcutStatus {
+  return { action, accelerator, state, duplicateOf: null };
+}
+
 function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
   return {
     capturing: false,
-    shortcut: "CommandOrControl+Shift+9",
-    shortcutRegistered: true,
-    showShortcut: "CommandOrControl+Shift+0",
-    showShortcutRegistered: true,
+    shortcuts: [
+      shortcut("capture", "CommandOrControl+Shift+9"),
+      shortcut("window", "CommandOrControl+Shift+0"),
+      shortcut("onTop", "CommandOrControl+Shift+8"),
+    ],
     currentDraft: null,
     lastDispatch: null,
     recentDispatches: [],
@@ -36,6 +48,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     settings: {
       globalShortcut: "CommandOrControl+Shift+9",
       showWindowShortcut: "CommandOrControl+Shift+0",
+      onTopShortcut: "CommandOrControl+Shift+8",
       windowPlacement: "cursor",
       windowDisplay: "",
       alwaysOnTop: false,
@@ -119,33 +132,55 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Start Capture" })).toBeInTheDocument();
   });
 
-  it("surfaces the shortcut-conflict warning from the snapshot", async () => {
-    mocks.getSnapshot.mockResolvedValue(snapshot({ shortcutRegistered: false }));
-    render(<App />);
-    // The shortcut setting (and its conflict warning) live on the Settings tab.
-    await userEvent.click(await screen.findByRole("tab", { name: "Settings" }));
-    expect(await screen.findByTestId("shortcut-conflict")).toBeInTheDocument();
-  });
-
-  // Tier A: a failed show-window shortcut must be visible without opening
-  // Settings (it was silently ignored before the banner covered it).
-  it("shows the global banner when only the show-window shortcut failed", async () => {
-    mocks.getSnapshot.mockResolvedValue(snapshot({ showShortcutRegistered: false }));
-    render(<App />);
-    expect(await screen.findByTestId("shortcut-conflict-global")).toHaveTextContent(
-      "The show-window shortcut is not active",
-    );
-  });
-
-  // Tier A: when both fail the banner names both, not just the capture one.
-  it("names both shortcuts when neither registered", async () => {
+  // Tier A: a shortcut that is set but not working shows a banner naming it,
+  // visible without opening Settings.
+  it("names a failed shortcut in the global banner", async () => {
     mocks.getSnapshot.mockResolvedValue(
-      snapshot({ shortcutRegistered: false, showShortcutRegistered: false }),
+      snapshot({
+        shortcuts: [
+          shortcut("capture", "CommandOrControl+Shift+9"),
+          shortcut("window", "CommandOrControl+Shift+0", "failed"),
+          shortcut("onTop", "CommandOrControl+Shift+8"),
+        ],
+      }),
     );
     render(<App />);
     expect(await screen.findByTestId("shortcut-conflict-global")).toHaveTextContent(
-      "The capture and show-window shortcuts are not active",
+      "The “Show / hide window” shortcut is not active",
     );
+  });
+
+  // Tier A: when several fail the banner names each of them.
+  it("names every broken shortcut", async () => {
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({
+        shortcuts: [
+          shortcut("capture", "CommandOrControl+Shift+9", "failed"),
+          shortcut("window", "CommandOrControl+Shift+0"),
+          shortcut("onTop", "CommandOrControl+Shift+9", "duplicate"),
+        ],
+      }),
+    );
+    render(<App />);
+    expect(await screen.findByTestId("shortcut-conflict-global")).toHaveTextContent(
+      "The “Start / Stop Capture” and “Always on Top” shortcuts are not active",
+    );
+  });
+
+  // Tier A: a shortcut the user turned off is not a problem — no banner.
+  it("shows no banner for shortcuts that are off", async () => {
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({
+        shortcuts: [
+          shortcut("capture", "", "off"),
+          shortcut("window", "", "off"),
+          shortcut("onTop", "", "off"),
+        ],
+      }),
+    );
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Start Capture" })).toBeInTheDocument();
+    expect(screen.queryByTestId("shortcut-conflict-global")).not.toBeInTheDocument();
   });
 
   it("splits Capture and Settings into tabs", async () => {
@@ -155,12 +190,25 @@ describe("App", () => {
     // the settings form is not.
     expect(await screen.findByRole("button", { name: "Start Capture" })).toBeInTheDocument();
     expect(screen.getByText("Recent Dispatches")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save Settings" })).not.toBeInTheDocument();
-    // Switch to Settings: the setup + settings form appear, capture control hides.
+    expect(screen.queryByRole("tab", { name: "Shortcuts" })).not.toBeInTheDocument();
+    // Switch to Settings: its own tabs appear (Shortcuts first), capture hides.
     await userEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    expect(screen.getByRole("button", { name: "Save Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Claude Code Setup")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Shortcuts" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Start / Stop Capture")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start Capture" })).not.toBeInTheDocument();
+    // There is no Save button any more: everything saves automatically.
+    expect(screen.queryByRole("button", { name: /Save/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Claude Code" }));
+    expect(screen.getByText("Claude Code Setup")).toBeInTheDocument();
+  });
+
+  // Tier A: "Open Setup" lands on the Claude Code tab, not on Shortcuts.
+  it("opens the Claude Code tab from the setup banner", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot({ integrations: [] }));
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Open Setup" }));
+    expect(screen.getByRole("tab", { name: "Claude Code" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Claude Code Setup")).toBeInTheDocument();
   });
 
   it("shows a backend notice (e.g. a size-limit rejection reason)", async () => {

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod window;
 
@@ -28,6 +28,7 @@ use context_drop_core::{
     undo_last_dispatch, AppendOutcome, CapturedItem, CapturedSnapshot, Db, ItemKind, Limits,
     PacketItem, PacketState, Settings, Storage, WindowPlacement, DEFAULT_UNDO_WINDOW_MS,
 };
+use context_drop_core::shortcuts::{self, ShortcutAction, Slot};
 use context_drop_clipboard::{ClipboardProvider, Payload, Watcher};
 
 /// How often the capture loop polls the clipboard while ON. Cheap change tokens
@@ -52,14 +53,11 @@ struct AppState {
     /// Size limits shared with the capture worker so a settings change takes
     /// effect on the very next clipboard event (no restart needed).
     limits: Arc<Mutex<Limits>>,
-    shortcut: Mutex<String>,
-    shortcut_registered: Arc<AtomicBool>,
-    /// The show/hide-window shortcut ("" = off) and whether it registered.
-    show_shortcut: Mutex<String>,
-    show_shortcut_registered: AtomicBool,
-    /// Id of the show-window shortcut ONLY while it is actually registered, so
-    /// a refused one (e.g. equal to the capture shortcut) never steals presses.
-    show_shortcut_id: Mutex<Option<u32>>,
+    /// The global shortcuts: what is registered, and each one's status.
+    shortcuts: Mutex<ShortcutBook>,
+    /// While Some and not yet past, the UI is recording a new shortcut: a press
+    /// of a registered shortcut is sent to the UI instead of being acted on.
+    recording_until: Mutex<Option<Instant>>,
     /// The tray's "Always on Top" check item, kept in sync with the setting.
     on_top_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
     /// Serializes capture lifecycle actions (start/stop/clear/save) AND the
@@ -71,6 +69,38 @@ struct AppState {
     thumb_cache: Arc<Mutex<HashMap<String, Option<String>>>>,
 }
 
+/// Global shortcut bookkeeping (decisions in `context_drop_core::shortcuts`).
+#[derive(Default)]
+struct ShortcutBook {
+    /// Registered with the OS right now; only these route key presses.
+    registered: Vec<(ShortcutAction, Shortcut)>,
+    /// The accelerators the registration was made from (capture, window, on top).
+    config: Vec<String>,
+    /// Per-action status for the UI.
+    status: Vec<ShortcutStatusInfo>,
+}
+
+/// One shortcut's status, for the Settings UI and the warning banner.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutStatusInfo {
+    /// "capture" | "window" | "onTop"
+    action: &'static str,
+    accelerator: String,
+    /// "off" | "active" | "failed" (the OS refused it) | "invalid" | "duplicate"
+    state: &'static str,
+    /// For "duplicate": the label of the action that already uses the key.
+    duplicate_of: Option<&'static str>,
+}
+
+fn action_id(action: ShortcutAction) -> &'static str {
+    match action {
+        ShortcutAction::ToggleCapture => "capture",
+        ShortcutAction::ToggleWindow => "window",
+        ShortcutAction::ToggleAlwaysOnTop => "onTop",
+    }
+}
+
 impl AppState {
     fn new(storage: Storage) -> AppState {
         AppState {
@@ -80,11 +110,8 @@ impl AppState {
             current_draft: Arc::new(Mutex::new(None)),
             notice: Arc::new(Mutex::new(None)),
             limits: Arc::new(Mutex::new(Limits::default())),
-            shortcut: Mutex::new(String::new()),
-            shortcut_registered: Arc::new(AtomicBool::new(false)),
-            show_shortcut: Mutex::new(String::new()),
-            show_shortcut_registered: AtomicBool::new(false),
-            show_shortcut_id: Mutex::new(None),
+            shortcuts: Mutex::new(ShortcutBook::default()),
+            recording_until: Mutex::new(None),
             on_top_item: Mutex::new(None),
             lifecycle: Arc::new(Mutex::new(())),
             thumb_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -174,11 +201,8 @@ struct IntegrationStatus {
 #[serde(rename_all = "camelCase")]
 struct AppSnapshot {
     capturing: bool,
-    shortcut: String,
-    shortcut_registered: bool,
-    show_shortcut: String,
-    /// False when a non-empty show-window shortcut could not be registered.
-    show_shortcut_registered: bool,
+    /// Each global shortcut's status (capture, window, onTop).
+    shortcuts: Vec<ShortcutStatusInfo>,
     current_draft: Option<CurrentDraft>,
     last_dispatch: Option<LastDispatchInfo>,
     /// The most recent dispatches, newest first (capped at RECENT_DISPATCHES).
@@ -319,18 +343,12 @@ fn build_snapshot(app: &AppHandle) -> Result<AppSnapshot, String> {
     // Extract lock-guarded values into locals so no MutexGuard temporary
     // outlives the `state` borrow at the end of the function.
     let capturing = state.capturing.load(Ordering::SeqCst);
-    let shortcut = state.shortcut.lock().unwrap().clone();
-    let shortcut_registered = state.shortcut_registered.load(Ordering::SeqCst);
-    let show_shortcut = state.show_shortcut.lock().unwrap().clone();
-    let show_shortcut_registered = state.show_shortcut_registered.load(Ordering::SeqCst);
+    let shortcuts = state.shortcuts.lock().unwrap().status.clone();
     let notice = state.notice.lock().unwrap().clone();
 
     Ok(AppSnapshot {
         capturing,
-        shortcut,
-        shortcut_registered,
-        show_shortcut,
-        show_shortcut_registered,
+        shortcuts,
         current_draft,
         last_dispatch,
         recent_dispatches,
@@ -1054,21 +1072,46 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
         db.save_settings(&sanitized).map_err(|e| e.to_string())?;
         *state.limits.lock().unwrap() = sanitized.limits();
     }
-    // Re-register the global shortcuts if either changed (outside the lifecycle
-    // lock; this touches the main-thread shortcut registry).
-    // Also retry when one is currently not registered, so saving the same value
-    // again works once the conflicting app is gone.
-    let changed = *state.shortcut.lock().unwrap() != sanitized.global_shortcut
-        || *state.show_shortcut.lock().unwrap() != sanitized.show_window_shortcut
-        || !state.shortcut_registered.load(Ordering::SeqCst)
-        || !state.show_shortcut_registered.load(Ordering::SeqCst);
-    if changed {
-        register_shortcuts(&app, &sanitized.global_shortcut, &sanitized.show_window_shortcut);
-    }
-    window::apply_flags(&app, &sanitized);
-    sync_on_top_item(&app, sanitized.always_on_top);
-    let _ = app.emit("cd:refresh", ());
+    apply_saved_settings(&app, &sanitized);
     Ok(())
+}
+
+/// Auto-save of ONE changed setting (or a few): read the saved settings, apply
+/// only `patch` (camelCase keys), save, apply. Fields not in the patch keep
+/// their saved value, so a stale UI copy can never undo a change made from the
+/// tray or a shortcut. Returns the settings as saved.
+#[tauri::command]
+fn update_settings(app: AppHandle, patch: serde_json::Value) -> Result<Settings, String> {
+    let state = app.state::<AppState>();
+    let saved = {
+        let _lifecycle = state.lifecycle.lock().unwrap();
+        let db = open_db(&state.storage)?;
+        let current = db.load_settings().map_err(|e| e.to_string())?;
+        let next = current.with_patch(&patch)?;
+        db.save_settings(&next).map_err(|e| e.to_string())?;
+        *state.limits.lock().unwrap() = next.limits();
+        next
+    };
+    apply_saved_settings(&app, &saved);
+    Ok(saved)
+}
+
+/// After a save: re-register the global shortcuts if their configuration
+/// changed or one is not registered (retry once a conflicting app is gone),
+/// apply the window flags, sync the tray, refresh the UI. Called from sync
+/// commands, i.e. on the main thread (the shortcut registry's thread).
+fn apply_saved_settings(app: &AppHandle, settings: &Settings) {
+    let state = app.state::<AppState>();
+    let needs = {
+        let book = state.shortcuts.lock().unwrap();
+        book.config != shortcut_config(settings) || book.status.iter().any(|s| s.state == "failed")
+    };
+    if needs {
+        register_shortcuts(app, settings);
+    }
+    window::apply_flags(app, settings);
+    sync_on_top_item(app, settings.always_on_top);
+    let _ = app.emit("cd:refresh", ());
 }
 
 #[tauri::command]
@@ -1076,49 +1119,95 @@ fn list_displays(app: AppHandle) -> Vec<window::DisplayInfo> {
     window::display_infos(&app)
 }
 
-/// Whether two accelerator strings are the same key combination
-/// ("Cmd+Shift+0" and "CommandOrControl+Shift+0" are, on macOS).
-fn same_shortcut(a: &str, b: &str) -> bool {
-    match (a.parse::<Shortcut>(), b.parse::<Shortcut>()) {
-        (Ok(a), Ok(b)) => a.id() == b.id(),
-        _ => false,
+fn shortcut_config(settings: &Settings) -> Vec<String> {
+    ShortcutAction::ALL
+        .iter()
+        .map(|a| a.accelerator(settings).to_string())
+        .collect()
+}
+
+/// Unregister every global shortcut this app holds.
+fn unregister_all(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let old = std::mem::take(&mut state.shortcuts.lock().unwrap().registered);
+    let gs = app.global_shortcut();
+    for (_, sc) in old {
+        let _ = gs.unregister(sc);
     }
 }
 
-/// (Re)register the capture-toggle and show-window shortcuts. Both old ones are
-/// unregistered first so the two can swap values in a single save. A
-/// show-window shortcut equal to the capture one is refused (reported as not
-/// registered) instead of shadowing it; an empty one is simply off.
-fn register_shortcuts(app: &AppHandle, capture: &str, show: &str) {
+/// (Re)register all global shortcuts from `settings`. Main thread only.
+/// The plan (empty = off, a key already used by an earlier action is refused)
+/// comes from `context_drop_core::shortcuts::plan`; the OS registry calls are
+/// made without holding the `shortcuts` lock the hotkey handler reads.
+fn register_shortcuts(app: &AppHandle, settings: &Settings) {
     let state = app.state::<AppState>();
+    unregister_all(app);
     let gs = app.global_shortcut();
-    let old = [
-        state.shortcut.lock().unwrap().clone(),
-        state.show_shortcut.lock().unwrap().clone(),
-    ];
-    for prev in old {
-        if let Ok(sc) = prev.parse::<Shortcut>() {
-            let _ = gs.unregister(sc);
-        }
+    let mut registered = Vec::new();
+    let mut status = Vec::new();
+    for (action, slot) in shortcuts::plan(settings, |s| s.parse::<Shortcut>().ok().map(|k| k.id())) {
+        let accelerator = action.accelerator(settings).to_string();
+        let (st, duplicate_of) = match slot {
+            Slot::Off => ("off", None),
+            Slot::Invalid => ("invalid", None),
+            Slot::Duplicate(owner) => ("duplicate", Some(owner.label())),
+            Slot::Register(_) => match accelerator.parse::<Shortcut>() {
+                Ok(sc) if gs.register(sc).is_ok() => {
+                    registered.push((action, sc));
+                    ("active", None)
+                }
+                _ => ("failed", None),
+            },
+        };
+        status.push(ShortcutStatusInfo {
+            action: action_id(action),
+            accelerator,
+            state: st,
+            duplicate_of,
+        });
     }
-    let register = |s: &str| {
-        s.parse::<Shortcut>()
-            .ok()
-            .filter(|sc| gs.register(*sc).is_ok())
-            .map(|sc| sc.id())
-    };
-    let capture_ok = register(capture).is_some();
-    let show_id = if show.is_empty() || same_shortcut(capture, show) {
-        None
-    } else {
-        register(show)
-    };
-    let show_ok = show.is_empty() || show_id.is_some();
-    *state.show_shortcut_id.lock().unwrap() = show_id;
-    state.shortcut_registered.store(capture_ok, Ordering::SeqCst);
-    state.show_shortcut_registered.store(show_ok, Ordering::SeqCst);
-    *state.shortcut.lock().unwrap() = capture.to_string();
-    *state.show_shortcut.lock().unwrap() = show.to_string();
+    let mut book = state.shortcuts.lock().unwrap();
+    book.registered = registered;
+    book.config = shortcut_config(settings);
+    book.status = status;
+}
+
+/// The UI starts recording a new shortcut. The registered shortcuts stay
+/// registered (nothing is unregistered / re-registered); while recording, a
+/// press of one is forwarded to the UI as `cd:shortcut-pressed` instead of
+/// being acted on. Ends by itself after 20 s in case the UI never says so.
+#[tauri::command]
+fn begin_recording(app: AppHandle) {
+    let state = app.state::<AppState>();
+    *state.recording_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(20));
+}
+
+#[tauri::command]
+fn end_recording(app: AppHandle) {
+    let state = app.state::<AppState>();
+    *state.recording_until.lock().unwrap() = None;
+}
+
+/// End a recording the UI left running (the window lost focus or was hidden)
+/// and tell the UI, so it never shows "recording" while presses act again.
+fn cancel_recording(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.recording_until.lock().unwrap().take().is_some() {
+        let _ = app.emit("cd:recording-ended", ());
+    }
+}
+
+fn is_recording(state: &AppState) -> bool {
+    let mut until = state.recording_until.lock().unwrap();
+    match *until {
+        Some(t) if Instant::now() < t => true,
+        Some(_) => {
+            *until = None;
+            false
+        }
+        None => false,
+    }
 }
 
 fn load_settings_or_default(app: &AppHandle) -> Settings {
@@ -1141,7 +1230,15 @@ fn sync_on_top_item(app: &AppHandle, on: bool) {
 /// `alwaysOnTop` key is written, and a failed read never writes anything, so
 /// the user's other settings can't be replaced by defaults. The tick (which
 /// macOS flips by itself on click) is always resynced to the saved value.
-fn toggle_always_on_top(app: &AppHandle) {
+/// Where an Always on Top toggle came from. Only a tray click has its check
+/// mark flipped by macOS itself (which a failed toggle must undo).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OnTopSource {
+    Tray,
+    Shortcut,
+}
+
+fn toggle_always_on_top(app: &AppHandle, source: OnTopSource) {
     let state = app.state::<AppState>();
     let result = {
         // Same lock as save_settings, so a concurrent UI save cannot interleave.
@@ -1167,13 +1264,15 @@ fn toggle_always_on_top(app: &AppHandle) {
                 .map(|s| s.always_on_top);
             match saved {
                 Some(on) => sync_on_top_item(app, on),
-                // DB unreadable: undo macOS's own flip of the tick.
-                None => {
+                // DB unreadable: undo macOS's own flip of the tick (a tray
+                // click only; a shortcut never flipped it).
+                None if source == OnTopSource::Tray => {
                     let item = state.on_top_item.lock().unwrap().clone();
                     if let Some(item) = item {
                         let _ = item.set_checked(!item.is_checked().unwrap_or(false));
                     }
                 }
+                None => {}
             }
             set_notice(app, format!("Could not change Always on Top: {e}"));
         }
@@ -1377,19 +1476,38 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        let is_show = app.try_state::<AppState>().is_some_and(|state| {
-                            *state.show_shortcut_id.lock().unwrap() == Some(shortcut.id())
-                        });
+                        let Some(state) = app.try_state::<AppState>() else {
+                            return;
+                        };
+                        // Only keys that are registered right now route anywhere.
+                        let action = {
+                            let book = state.shortcuts.lock().unwrap();
+                            let ids: Vec<(ShortcutAction, u32)> =
+                                book.registered.iter().map(|(a, sc)| (*a, sc.id())).collect();
+                            shortcuts::route(&ids, shortcut.id()).map(|a| {
+                                let acc = a.accelerator_in(&book.config).to_string();
+                                (a, acc)
+                            })
+                        };
+                        let Some((action, accelerator)) = action else {
+                            return;
+                        };
+                        // Recording a new shortcut: this key is the user's choice,
+                        // not a command.
+                        if is_recording(&state) {
+                            let _ = app.emit("cd:shortcut-pressed", accelerator);
+                            return;
+                        }
                         // Return from the hotkey callback immediately: doing the
                         // DB/tray/window work here can deadlock the hotkey thread
                         // against the main thread (notably on X11). Run it
                         // off-thread.
                         let app = app.clone();
-                        thread::spawn(move || {
-                            if is_show {
-                                toggle_main_window(&app);
-                            } else {
-                                do_toggle_capture(&app);
+                        thread::spawn(move || match action {
+                            ShortcutAction::ToggleCapture => do_toggle_capture(&app),
+                            ShortcutAction::ToggleWindow => toggle_main_window(&app),
+                            ShortcutAction::ToggleAlwaysOnTop => {
+                                toggle_always_on_top(&app, OnTopSource::Shortcut)
                             }
                         });
                     }
@@ -1405,11 +1523,16 @@ pub fn run() {
             WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 remember_window_position(window.app_handle());
+                cancel_recording(window.app_handle());
                 let _ = window.hide();
             }
             // Leaving the window (another app is used) is when its last
             // position is saved, rather than on every Moved event of a drag.
-            WindowEvent::Focused(false) => remember_window_position(window.app_handle()),
+            // It also ends a shortcut recording that is still in progress.
+            WindowEvent::Focused(false) => {
+                remember_window_position(window.app_handle());
+                cancel_recording(window.app_handle());
+            }
             WindowEvent::DragDrop(drag) => {
                 let app = window.app_handle();
                 match drag {
@@ -1452,6 +1575,9 @@ pub fn run() {
             item_full_image,
             delete_item,
             list_displays,
+            update_settings,
+            begin_recording,
+            end_recording,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -1528,7 +1654,7 @@ pub fn run() {
 
             // Register the global shortcuts and apply the window settings.
             let settings = load_settings_or_default(&handle);
-            register_shortcuts(&handle, &settings.global_shortcut, &settings.show_window_shortcut);
+            register_shortcuts(&handle, &settings);
             window::apply_flags(&handle, &settings);
             if settings.window_placement == WindowPlacement::Last {
                 let state = handle.state::<AppState>();
@@ -1581,7 +1707,7 @@ pub fn run() {
                         let _ = open_data_folder(app.clone());
                     }
                     "show" => show_main_window(app),
-                    "on_top" => toggle_always_on_top(app),
+                    "on_top" => toggle_always_on_top(app, OnTopSource::Tray),
                     "quit" => {
                         remember_window_position(app);
                         app.exit(0);

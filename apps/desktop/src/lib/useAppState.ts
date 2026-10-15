@@ -15,7 +15,13 @@ export interface AppStateHook {
   clearPacket: () => Promise<void>;
   deleteItem: (packetId: string, itemId: string) => Promise<void>;
   undoLast: () => Promise<void>;
-  saveSettings: (settings: Settings) => Promise<void>;
+  /** Resolves true when saved (false: the error banner shows why). */
+  saveSettings: (settings: Settings) => Promise<boolean>;
+  /**
+   * Auto-save of single fields. Does NOT set `busy` (the form stays usable
+   * while it saves). Resolves null when saved, else the error message.
+   */
+  updateSettings: (patch: Partial<Settings>) => Promise<string | null>;
   /** Resolves to the success message, or `undefined` if the command failed. */
   installIntegration: (configDir?: string) => Promise<string | undefined>;
   installShortAlias: (configDir?: string) => Promise<string | undefined>;
@@ -114,7 +120,17 @@ export function useAppState(pollMs = 1500): AppStateHook {
     deleteItem: (packetId, itemId) =>
       act(() => api.deleteItem(packetId, itemId)).then(() => undefined),
     undoLast: () => act(api.undoLast).then(() => undefined),
-    saveSettings: (settings) => act(() => api.saveSettings(settings)).then(() => undefined),
+    saveSettings: (settings) =>
+      act(() => api.saveSettings(settings).then(() => true)).then((ok) => ok === true),
+    updateSettings: async (patch) => {
+      try {
+        await api.updateSettings(patch);
+        await refresh();
+        return null;
+      } catch (e) {
+        return errorMessage(e);
+      }
+    },
     // Returns the success message, or undefined when the command failed (in
     // which case `act` has already set the error banner).
     installIntegration: (configDir) => act(() => api.installIntegration(configDir)),
