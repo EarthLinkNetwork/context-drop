@@ -8,6 +8,9 @@ import {
 } from "../../lib/accelerator";
 import { SavedMark } from "./useAutoSave";
 
+/** Slightly under the backend's 20 s recording limit (see begin_recording). */
+export const RECORDING_TIMEOUT_MS = 19_000;
+
 export interface OtherShortcut {
   label: string;
   accelerator: string;
@@ -28,6 +31,10 @@ interface Props {
   /** Tell the backend a recording started / ended (see begin_recording). */
   onBeginRecording: () => void;
   onEndRecording: () => void;
+  /** Another row is recording: this row's buttons are disabled. */
+  locked: boolean;
+  /** This row started (true) or stopped (false) recording. */
+  onRecordingChange: (recording: boolean) => void;
   /**
    * Subscribe to backend events: a registered shortcut pressed while
    * recording (payload: its accelerator), and the backend ending a recording
@@ -55,20 +62,29 @@ export function ShortcutRecorder({
   onSave,
   onBeginRecording,
   onEndRecording,
+  locked,
+  onRecordingChange,
   subscribe,
 }: Props) {
   const [recording, setRecording] = useState(false);
   const [preview, setPreview] = useState("");
   const [hint, setHint] = useState<string | null>(null);
   const recordingRef = useRef(false);
+  // Latest callbacks, so `stop` (and the unmount cleanup) keep one identity
+  // across parent re-renders — a re-render must never end a recording.
+  const endRef = useRef(onEndRecording);
+  const changeRef = useRef(onRecordingChange);
+  endRef.current = onEndRecording;
+  changeRef.current = onRecordingChange;
 
   const stop = useCallback(() => {
     if (!recordingRef.current) return;
     recordingRef.current = false;
     setRecording(false);
     setPreview("");
-    onEndRecording();
-  }, [onEndRecording]);
+    endRef.current();
+    changeRef.current(false);
+  }, []);
 
   // A combination already used by another of the app's shortcuts.
   const conflictWith = useCallback(
@@ -128,6 +144,12 @@ export function ShortcutRecorder({
       e.stopPropagation();
     };
     const onBlur = () => stop();
+    // The backend stops forwarding after 20 s; end here a little earlier so
+    // the row never shows "recording" while presses act again.
+    const timeout = setTimeout(() => {
+      setHint(null);
+      stop();
+    }, RECORDING_TIMEOUT_MS);
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", swallow, true);
     window.addEventListener("blur", onBlur);
@@ -140,6 +162,7 @@ export function ShortcutRecorder({
       () => stop(),
     );
     return () => {
+      clearTimeout(timeout);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", swallow, true);
       window.removeEventListener("blur", onBlur);
@@ -147,15 +170,18 @@ export function ShortcutRecorder({
     };
   }, [recording, platform, accept, stop, subscribe]);
 
-  // Never leave the backend recording if this row goes away mid-recording.
+  // Never leave the backend recording if this row goes away mid-recording
+  // (`stop` is stable, so this runs on unmount only).
   useEffect(() => () => stop(), [stop]);
 
   const start = () => {
+    if (locked) return;
     (document.activeElement as HTMLElement | null)?.blur?.();
     recordingRef.current = true;
     setRecording(true);
     setPreview("");
     setHint(null);
+    onRecordingChange(true);
     onBeginRecording();
   };
 
@@ -207,13 +233,13 @@ export function ShortcutRecorder({
           </button>
         ) : (
           <>
-            <button type="button" className="btn btn-small" onClick={start}>
+            <button type="button" className="btn btn-small" disabled={locked} onClick={start}>
               Change
             </button>
             <button
               type="button"
               className="btn btn-small"
-              disabled={value === ""}
+              disabled={locked || value === ""}
               onClick={() => {
                 setHint(null);
                 void onSave("");
@@ -224,7 +250,7 @@ export function ShortcutRecorder({
             <button
               type="button"
               className="btn btn-small"
-              disabled={value === defaultValue}
+              disabled={locked || value === defaultValue}
               onClick={reset}
             >
               Reset

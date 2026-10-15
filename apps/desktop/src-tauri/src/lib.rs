@@ -1198,16 +1198,24 @@ fn cancel_recording(app: &AppHandle) {
     }
 }
 
-fn is_recording(state: &AppState) -> bool {
-    let mut until = state.recording_until.lock().unwrap();
-    match *until {
-        Some(t) if Instant::now() < t => true,
-        Some(_) => {
-            *until = None;
-            false
+/// Whether a recording is in progress. A recording past its deadline is ended
+/// here, and the UI is told (it also stops on its own slightly earlier).
+fn is_recording(app: &AppHandle, state: &AppState) -> bool {
+    let expired = {
+        let mut until = state.recording_until.lock().unwrap();
+        match *until {
+            Some(t) if Instant::now() < t => return true,
+            Some(_) => {
+                *until = None;
+                true
+            }
+            None => false,
         }
-        None => false,
+    };
+    if expired {
+        let _ = app.emit("cd:recording-ended", ());
     }
+    false
 }
 
 fn load_settings_or_default(app: &AppHandle) -> Settings {
@@ -1494,7 +1502,7 @@ pub fn run() {
                         };
                         // Recording a new shortcut: this key is the user's choice,
                         // not a command.
-                        if is_recording(&state) {
+                        if is_recording(app, &state) {
                             let _ = app.emit("cd:shortcut-pressed", accelerator);
                             return;
                         }

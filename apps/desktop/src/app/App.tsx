@@ -20,6 +20,14 @@ const SHORTCUT_LABEL: Record<ShortcutActionId, string> = {
   onTop: "Always on Top",
 };
 
+// Stable (module-level) so a re-render never changes their identity.
+function beginRecording() {
+  void api.beginRecording().catch(() => undefined);
+}
+function endRecording() {
+  void api.endRecording().catch(() => undefined);
+}
+
 /** Backend events while a shortcut is being recorded (see ShortcutRecorder). */
 function subscribeRecording(
   onShortcutPressed: (accelerator: string) => void,
@@ -180,8 +188,8 @@ export function App() {
           platform={PLATFORM}
           onPatch={state.updateSettings}
           onListDisplays={api.listDisplays}
-          onBeginRecording={() => void api.beginRecording().catch(() => undefined)}
-          onEndRecording={() => void api.endRecording().catch(() => undefined)}
+          onBeginRecording={beginRecording}
+          onEndRecording={endRecording}
           subscribeRecording={subscribeRecording}
           onOpenDataFolder={() => void state.openDataFolder()}
           claudeSetup={

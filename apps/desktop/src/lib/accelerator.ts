@@ -43,7 +43,7 @@ const MODIFIER_CODES = new Set([
 const NAMED: Record<string, string> = {
   Space: "Space",
   Enter: "Enter",
-  NumpadEnter: "Enter",
+  NumpadEnter: "NumpadEnter",
   Tab: "Tab",
   Backspace: "Backspace",
   Delete: "Delete",
@@ -141,6 +141,8 @@ const OTHER_NAME: Record<string, string> = {
 };
 
 const KEY_LABEL: Record<string, string> = {
+  numpadenter: "Num Enter",
+  numenter: "Num Enter",
   up: "↑",
   down: "↓",
   left: "←",
@@ -175,6 +177,31 @@ export function formatAccelerator(acc: string, platform: Platform): string {
   return platform === "mac" ? out.join("") : out.join("+");
 }
 
+// Spellings global-hotkey's parse_key treats as the same key, folded to one.
+const KEY_ALIAS: Record<string, string> = {
+  "-": "minus",
+  "=": "equal",
+  "[": "bracketleft",
+  "]": "bracketright",
+  "\\": "backslash",
+  ";": "semicolon",
+  "'": "quote",
+  "`": "backquote",
+  ",": "comma",
+  ".": "period",
+  "/": "slash",
+  arrowup: "up",
+  arrowdown: "down",
+  arrowleft: "left",
+  arrowright: "right",
+  esc: "escape",
+  numenter: "numpadenter",
+  numadd: "numpadadd",
+  numplus: "numpadadd",
+  numpadplus: "numpadadd",
+  ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`numpad${i}`, `num${i}`])),
+};
+
 /**
  * A canonical form for comparing two accelerators (same key combination ⇒
  * same string): lower-cased, modifier aliases merged, modifiers sorted.
@@ -190,10 +217,7 @@ export function normalizeAccelerator(acc: string, platform: Platform): string {
     if (["control", "ctrl"].includes(p)) return "ctrl";
     if (["alt", "option"].includes(p)) return "alt";
     if (p === "shift") return "shift";
-    return p
-      .replace(/^key([a-z])$/, "$1")
-      .replace(/^digit([0-9])$/, "$1")
-      .replace(/^arrow(up|down|left|right)$/, "$1");
+    return KEY_ALIAS[p] ?? p.replace(/^key([a-z])$/, "$1").replace(/^digit([0-9])$/, "$1");
   };
   const mapped = parts.map(alias);
   const mods = mapped.filter((p) => ["meta", "ctrl", "alt", "shift"].includes(p)).sort();

@@ -76,6 +76,8 @@ describe("keyName", () => {
     expect(keyName("ArrowUp")).toBe("Up");
     expect(keyName("Space")).toBe("Space");
     expect(keyName("Pause")).toBeNull();
+    // The keypad Enter is its own key (not Return).
+    expect(keyName("NumpadEnter")).toBe("NumpadEnter");
   });
 });
 
@@ -96,6 +98,14 @@ describe("normalizeAccelerator", () => {
     expect(normalizeAccelerator("shift+cmd+9", "mac")).toBe(a);
     expect(normalizeAccelerator("Cmd+Shift+Digit9", "mac")).toBe(a);
     expect(normalizeAccelerator("Control+Shift+9", "mac")).not.toBe(a);
+    // Key spellings global-hotkey treats as one key (a hand-typed v0.1.8 value).
+    expect(normalizeAccelerator("CmdOrCtrl+Shift+-", "mac")).toBe(
+      normalizeAccelerator("CommandOrControl+Shift+Minus", "mac"),
+    );
+    expect(normalizeAccelerator("Cmd+Alt+Num1", "mac")).toBe(
+      normalizeAccelerator("Cmd+Alt+Numpad1", "mac"),
+    );
+    expect(normalizeAccelerator("Ctrl+Esc", "mac")).toBe(normalizeAccelerator("Ctrl+Escape", "mac"));
     expect(normalizeAccelerator("Ctrl+Shift+9", "other")).toBe(
       normalizeAccelerator("CommandOrControl+Shift+9", "other"),
     );

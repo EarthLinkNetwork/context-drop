@@ -188,7 +188,70 @@ describe("Shortcuts tab", () => {
   });
 });
 
+describe("Shortcuts tab — recording lifecycle", () => {
+  // Tier A: a parent re-render (the 1.5 s snapshot poll) with new callback
+  // identities must NOT end a recording in progress.
+  it("keeps recording across a re-render with new callbacks", async () => {
+    const p = setup();
+    const r = within(row("Always on Top"));
+    await userEvent.click(r.button("Change"));
+    p.view.rerender(
+      <SettingsView
+        {...p}
+        settings={{ ...p.settings }}
+        onEndRecording={vi.fn()}
+        onBeginRecording={vi.fn()}
+      />,
+    );
+    expect(r.keys()).toBe("Press keys…");
+    expect(p.onEndRecording).not.toHaveBeenCalled();
+  });
+
+  // Tier A: only one row records at a time — the others are locked, so one
+  // key press can't be saved to two shortcuts.
+  it("locks the other rows while one records", async () => {
+    setup();
+    await userEvent.click(within(row("Start / Stop Capture")).button("Change"));
+    expect(within(row("Always on Top")).button("Change")).toBeDisabled();
+    expect(within(row("Show / hide window")).button("Reset")).toBeDisabled();
+    fireEvent.keyDown(window, { code: "Escape" });
+    expect(within(row("Always on Top")).button("Change")).toBeEnabled();
+  });
+
+  // Tier A: the UI ends a recording before the backend's 20 s limit, so it
+  // never shows "recording" while shortcuts act again.
+  it("ends a recording by itself before the backend limit", async () => {
+    vi.useFakeTimers();
+    try {
+      const p = setup();
+      const r = within(row("Always on Top"));
+      fireEvent.click(r.button("Change"));
+      expect(r.keys()).toBe("Press keys…");
+      act(() => vi.advanceTimersByTime(19_000));
+      expect(r.keys()).toBe("⌘⇧8");
+      expect(p.onEndRecording).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("Window tab", () => {
+  // Tier A: a quick second click toggles back (not the same value twice).
+  it("sends the toggled-back value on a quick double click", async () => {
+    const p = setup({ tab: "window" });
+    let release: (v: string | null) => void = () => {};
+    p.onPatch.mockImplementationOnce(() => new Promise((res) => (release = res)));
+    const box = screen.getByLabelText("Always on top");
+    fireEvent.click(box);
+    fireEvent.click(box);
+    await waitFor(() => expect(p.onPatch).toHaveBeenCalledTimes(1));
+    act(() => release(null));
+    await waitFor(() => expect(p.onPatch).toHaveBeenCalledTimes(2));
+    expect(p.onPatch.mock.calls[0][0]).toEqual({ alwaysOnTop: true });
+    expect(p.onPatch.mock.calls[1][0]).toEqual({ alwaysOnTop: false });
+  });
+
   // Tier A: each change saves just its own field, immediately.
   it("auto-saves toggles and the placement", async () => {
     const p = setup({ tab: "window" });
@@ -220,6 +283,7 @@ describe("Advanced tab", () => {
   it("saves a number on blur", async () => {
     const p = setup({ tab: "advanced" });
     const f = screen.getByLabelText("Max item size (MB)");
+    fireEvent.focus(f);
     fireEvent.change(f, { target: { value: "30" } });
     expect(p.onPatch).not.toHaveBeenCalled();
     fireEvent.blur(f);
@@ -230,10 +294,24 @@ describe("Advanced tab", () => {
   it("reverts an invalid number instead of saving it", () => {
     const p = setup({ tab: "advanced" });
     const f = screen.getByLabelText("Packet TTL (hours)");
+    fireEvent.focus(f);
     fireEvent.change(f, { target: { value: "0" } });
     fireEvent.blur(f);
     expect(p.onPatch).not.toHaveBeenCalled();
     expect(f).toHaveValue(24);
+  });
+
+  // Tier A: when the backend clamps a value (item limit above the packet
+  // limit) the field shows what was really saved, not the typed number.
+  it("shows the saved value after the backend clamps it", async () => {
+    const p = setup({ tab: "advanced", settings: { maxItemBytes: 200 * 1024 * 1024 } });
+    const f = screen.getByLabelText("Max item size (MB)");
+    fireEvent.focus(f);
+    fireEvent.change(f, { target: { value: "500" } });
+    fireEvent.blur(f);
+    await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith({ maxItemBytes: 500 * 1024 * 1024 }));
+    // The saved value is unchanged (clamped to the 200 MB packet limit).
+    expect(f).toHaveValue(200);
   });
 
   it("saves the auto-cleanup toggle at once", async () => {

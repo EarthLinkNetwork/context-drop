@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   DisplayInfo,
   Settings,
@@ -118,6 +118,8 @@ function ShortcutsTab({
   save,
   savedKey,
 }: Props & { save: Save; savedKey: string | null }) {
+  // Only one row records at a time (one key press must not land in two rows).
+  const [recordingAction, setRecordingAction] = useState<ShortcutActionId | null>(null);
   return (
     <div className="shortcut-list">
       <p className="hint">
@@ -141,6 +143,10 @@ function ShortcutsTab({
             onSave={(acc) => save({ [row.field]: acc }, row.field)}
             onBeginRecording={onBeginRecording}
             onEndRecording={onEndRecording}
+            locked={recordingAction !== null && recordingAction !== row.action}
+            onRecordingChange={(on) =>
+              setRecordingAction((cur) => (on ? row.action : cur === row.action ? null : cur))
+            }
             subscribe={subscribeRecording}
           />
         );
@@ -238,14 +244,14 @@ function WindowTab({
         text="Keep the window in front of other apps"
         checked={settings.alwaysOnTop}
         saved={savedKey === "alwaysOnTop"}
-        onChange={(v) => void save({ alwaysOnTop: v }, "alwaysOnTop")}
+        onChange={(v) => save({ alwaysOnTop: v }, "alwaysOnTop")}
       />
       <Toggle
         label="Show on all desktops"
         text="Show the window on every desktop (Space)"
         checked={settings.showOnAllDesktops}
         saved={savedKey === "showOnAllDesktops"}
-        onChange={(v) => void save({ showOnAllDesktops: v }, "showOnAllDesktops")}
+        onChange={(v) => save({ showOnAllDesktops: v }, "showOnAllDesktops")}
       />
     </div>
   );
@@ -262,15 +268,27 @@ function Toggle({
   text: string;
   checked: boolean;
   saved: boolean;
-  onChange: (value: boolean) => void;
+  onChange: (value: boolean) => Promise<boolean>;
 }) {
+  // Show the clicked value at once (a quick second click toggles back instead
+  // of re-sending the same value); follow the saved value once saves settle.
+  const [pending, setPending] = useState<boolean | null>(null);
+  const inFlight = useRef(0);
   return (
     <label className="field field-inline">
       <input
         type="checkbox"
         aria-label={label}
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
+        checked={pending ?? checked}
+        onChange={(e) => {
+          const v = e.target.checked;
+          setPending(v);
+          inFlight.current += 1;
+          void onChange(v).finally(() => {
+            inFlight.current -= 1;
+            if (inFlight.current === 0) setPending(null);
+          });
+        }}
       />
       <span>
         {text} <SavedMark show={saved} />
@@ -317,7 +335,7 @@ function AdvancedTab({
         text="Automatically clean up expired packets"
         checked={settings.autoCleanup}
         saved={savedKey === "autoCleanup"}
-        onChange={(v) => void save({ autoCleanup: v }, "autoCleanup")}
+        onChange={(v) => save({ autoCleanup: v }, "autoCleanup")}
       />
 
       <div className="settings-actions">
@@ -355,18 +373,18 @@ function NumberSetting({
   saved: boolean;
   onCommit: (n: number) => Promise<boolean>;
 }) {
-  const [text, setText] = useState(String(value));
-  // Follow the saved value when it changes (e.g. clamped by the backend).
-  useEffect(() => setText(String(value)), [value]);
+  // While the field is being edited it shows the typed text; otherwise it
+  // always shows the SAVED value (so a value the backend clamped, e.g. an item
+  // limit above the packet limit, is never left on screen as if saved).
+  const [editing, setEditing] = useState<string | null>(null);
 
   const commit = useCallback(() => {
-    const n = Number(text.trim());
-    if (!/^\d+$/.test(text.trim()) || !Number.isSafeInteger(n) || n < 1) {
-      setText(String(value));
-      return;
-    }
+    const text = (editing ?? "").trim();
+    setEditing(null);
+    const n = Number(text);
+    if (!/^\d+$/.test(text) || !Number.isSafeInteger(n) || n < 1) return;
     if (n !== value) void onCommit(n);
-  }, [text, value, onCommit]);
+  }, [editing, value, onCommit]);
 
   return (
     <label className="field">
@@ -377,8 +395,9 @@ function NumberSetting({
         type="number"
         aria-label={label}
         min={1}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
+        value={editing ?? String(value)}
+        onFocus={() => setEditing(String(value))}
+        onChange={(e) => setEditing(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
