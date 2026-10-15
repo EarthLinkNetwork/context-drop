@@ -40,45 +40,99 @@ const MODIFIER_CODES = new Set([
   "Fn",
 ]);
 
-const NAMED: Record<string, string> = {
-  Space: "Space",
-  Enter: "Enter",
-  NumpadEnter: "NumpadEnter",
-  Tab: "Tab",
-  Backspace: "Backspace",
-  Delete: "Delete",
-  Home: "Home",
-  End: "End",
-  PageUp: "PageUp",
-  PageDown: "PageDown",
-  ArrowUp: "Up",
-  ArrowDown: "Down",
-  ArrowLeft: "Left",
-  ArrowRight: "Right",
-  Minus: "Minus",
-  Equal: "Equal",
-  BracketLeft: "BracketLeft",
-  BracketRight: "BracketRight",
-  Backslash: "Backslash",
-  Semicolon: "Semicolon",
-  Quote: "Quote",
-  Backquote: "Backquote",
-  Comma: "Comma",
-  Period: "Period",
-  Slash: "Slash",
-};
+// The key names global-hotkey 0.8.0's `parse_key` accepts, each folded to one
+// canonical name (its Code). Mirrors that table so the UI's duplicate check
+// agrees with the backend's `Shortcut::id()` for every spelling.
+const KEY_CANON: Record<string, string> = (() => {
+  const t: Record<string, string> = {};
+  const add = (canon: string, ...names: string[]) => {
+    for (const n of [canon, ...names]) t[n.toUpperCase()] = canon;
+  };
+  add("Backquote", "`");
+  add("Backslash", "\\");
+  add("BracketLeft", "[");
+  add("BracketRight", "]");
+  add("Pause", "PauseBreak");
+  add("Comma", ",");
+  for (let i = 0; i <= 9; i++) add(`Digit${i}`, `${i}`);
+  add("Equal", "=");
+  for (const c of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") add(`Key${c}`, c);
+  add("Minus", "-");
+  add("Period", ".");
+  add("Quote", "'");
+  add("Semicolon", ";");
+  add("Slash", "/");
+  for (const k of ["Backspace", "CapsLock", "Enter", "Space", "Tab", "Delete", "End", "Home"])
+    add(k);
+  for (const k of ["Insert", "PageDown", "PageUp", "PrintScreen", "ScrollLock", "NumLock"]) add(k);
+  add("ArrowDown", "Down");
+  add("ArrowLeft", "Left");
+  add("ArrowRight", "Right");
+  add("ArrowUp", "Up");
+  for (let i = 0; i <= 9; i++) add(`Numpad${i}`, `Num${i}`);
+  add("NumpadAdd", "NumAdd", "NumpadPlus", "NumPlus");
+  add("NumpadDecimal", "NumDecimal");
+  add("NumpadDivide", "NumDivide");
+  add("NumpadEnter", "NumEnter");
+  add("NumpadEqual", "NumEqual");
+  add("NumpadMultiply", "NumMultiply");
+  add("NumpadSubtract", "NumSubtract");
+  add("Escape", "Esc");
+  for (let i = 1; i <= 24; i++) add(`F${i}`);
+  add("AudioVolumeDown", "VolumeDown");
+  add("AudioVolumeUp", "VolumeUp");
+  add("AudioVolumeMute", "VolumeMute");
+  for (const k of ["MediaPlay", "MediaPause", "MediaPlayPause", "MediaStop", "MediaTrackNext"])
+    add(k);
+  add("MediaTrackPrevious", "MediaTrackPrev");
+  return t;
+})();
 
-/** The global-hotkey key name for a `KeyboardEvent.code`, or null if unsupported. */
+/** Canonical key (its Code) for any spelling global-hotkey parses, or null. */
+export function canonicalKey(name: string): string | null {
+  return KEY_CANON[name.trim().toUpperCase()] ?? null;
+}
+
+// Parseable, but not usable as a recorded global shortcut here: no macOS
+// keycode for them in global-hotkey (F21+, Pause, ScrollLock, NumLock, media
+// keys) or they act as modifiers (CapsLock).
+const NOT_RECORDABLE = new Set([
+  "F21",
+  "F22",
+  "F23",
+  "F24",
+  "Pause",
+  "ScrollLock",
+  "NumLock",
+  "CapsLock",
+  "PrintScreen",
+  "Insert",
+  "AudioVolumeDown",
+  "AudioVolumeUp",
+  "AudioVolumeMute",
+  "MediaPlay",
+  "MediaPause",
+  "MediaPlayPause",
+  "MediaStop",
+  "MediaTrackNext",
+  "MediaTrackPrevious",
+]);
+
+/**
+ * The accelerator key name for a `KeyboardEvent.code`, or null if it can't be
+ * used. Short, readable forms for letters, digits and arrows ("A", "0", "Up");
+ * every other key keeps its Code name, which global-hotkey parses directly.
+ */
 export function keyName(code: string): string | null {
-  let m = /^Key([A-Z])$/.exec(code);
+  const canon = canonicalKey(code);
+  if (!canon || canon !== code || NOT_RECORDABLE.has(canon)) return null;
+  let m = /^Key([A-Z])$/.exec(canon);
   if (m) return m[1];
-  m = /^Digit([0-9])$/.exec(code);
+  m = /^Digit([0-9])$/.exec(canon);
   if (m) return m[1];
-  m = /^Numpad([0-9])$/.exec(code);
-  if (m) return `Num${m[1]}`;
-  m = /^F([1-9]|1[0-9]|20)$/.exec(code);
-  if (m) return `F${m[1]}`;
-  return NAMED[code] ?? null;
+  m = /^Arrow(Up|Down|Left|Right)$/.exec(canon);
+  if (m) return m[1];
+  return canon;
 }
 
 function modifierParts(e: KeyLike, platform: Platform): string[] {
@@ -143,6 +197,13 @@ const OTHER_NAME: Record<string, string> = {
 };
 
 const KEY_LABEL: Record<string, string> = {
+  escape: "Esc",
+  numpadadd: "Num +",
+  numpadsubtract: "Num −",
+  numpadmultiply: "Num ×",
+  numpaddivide: "Num ÷",
+  numpaddecimal: "Num .",
+  numpadequal: "Num =",
   numpadenter: "Num Enter",
   numenter: "Num Enter",
   up: "↑",
@@ -179,52 +240,28 @@ export function formatAccelerator(acc: string, platform: Platform): string {
   return platform === "mac" ? out.join("") : out.join("+");
 }
 
-// Spellings global-hotkey's parse_key treats as the same key, folded to one.
-const KEY_ALIAS: Record<string, string> = {
-  "-": "minus",
-  "=": "equal",
-  "[": "bracketleft",
-  "]": "bracketright",
-  "\\": "backslash",
-  ";": "semicolon",
-  "'": "quote",
-  "`": "backquote",
-  ",": "comma",
-  ".": "period",
-  "/": "slash",
-  arrowup: "up",
-  arrowdown: "down",
-  arrowleft: "left",
-  arrowright: "right",
-  esc: "escape",
-  numenter: "numpadenter",
-  numadd: "numpadadd",
-  numplus: "numpadadd",
-  numpadplus: "numpadadd",
-  ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`numpad${i}`, `num${i}`])),
-};
-
 /**
  * A canonical form for comparing two accelerators (same key combination ⇒
- * same string): lower-cased, modifier aliases merged, modifiers sorted.
+ * same string), following global-hotkey's `parse_hotkey`: modifier aliases
+ * (Option/Alt, Control/Ctrl, Command/Cmd/Super, the CommandOrControl family
+ * — Super on macOS, Control elsewhere) and key aliases are merged, modifiers
+ * sorted.
  */
 export function normalizeAccelerator(acc: string, platform: Platform): string {
-  const parts = acc
-    .split("+")
-    .map((p) => p.trim().toLowerCase())
-    .filter(Boolean);
-  const alias = (p: string): string => {
-    if (["commandorcontrol", "cmdorctrl"].includes(p)) return platform === "mac" ? "meta" : "ctrl";
-    if (["command", "cmd", "super"].includes(p)) return "meta";
-    if (["control", "ctrl"].includes(p)) return "ctrl";
-    if (["alt", "option"].includes(p)) return "alt";
-    if (p === "shift") return "shift";
-    return KEY_ALIAS[p] ?? p.replace(/^key([a-z])$/, "$1").replace(/^digit([0-9])$/, "$1");
-  };
-  const mapped = parts.map(alias);
-  const mods = mapped.filter((p) => ["meta", "ctrl", "alt", "shift"].includes(p)).sort();
-  const keys = mapped.filter((p) => !["meta", "ctrl", "alt", "shift"].includes(p));
-  return [...mods, ...keys].join("+");
+  const mods = new Set<string>();
+  const keys: string[] = [];
+  for (const raw of acc.split("+")) {
+    const p = raw.trim().toUpperCase();
+    if (!p) continue;
+    if (p === "OPTION" || p === "ALT") mods.add("alt");
+    else if (p === "CONTROL" || p === "CTRL") mods.add("ctrl");
+    else if (p === "COMMAND" || p === "CMD" || p === "SUPER") mods.add("meta");
+    else if (p === "SHIFT") mods.add("shift");
+    else if (["COMMANDORCONTROL", "COMMANDORCTRL", "CMDORCTRL", "CMDORCONTROL"].includes(p))
+      mods.add(platform === "mac" ? "meta" : "ctrl");
+    else keys.push(canonicalKey(p) ?? p.toLowerCase());
+  }
+  return [...[...mods].sort(), ...keys].join("+");
 }
 
 export function detectPlatform(): Platform {

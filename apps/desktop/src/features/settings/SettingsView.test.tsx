@@ -368,3 +368,42 @@ it("shows a save error", async () => {
   await userEvent.click(screen.getByLabelText("Always on top"));
   expect(await screen.findByTestId("autosave-error")).toHaveTextContent("database is locked");
 });
+
+describe("changes still being saved", () => {
+  // Tier A: going back to the saved number while the first change is still
+  // saving is a real change (the user ends at 24, not 48).
+  it("sends a number changed back while the first save is pending", async () => {
+    const p = setup({ tab: "advanced" });
+    let release: (v: string | null) => void = () => {};
+    p.onPatch.mockImplementationOnce(() => new Promise((res) => (release = res)));
+    const f = screen.getByLabelText("Packet TTL (hours)");
+    fireEvent.focus(f);
+    fireEvent.change(f, { target: { value: "48" } });
+    fireEvent.blur(f);
+    fireEvent.focus(f);
+    fireEvent.change(f, { target: { value: "24" } });
+    fireEvent.blur(f);
+    expect(f).toHaveValue(24);
+    await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith({ packetTtlHours: 48 }));
+    // Once the first save finishes, the change back to 24 is sent too.
+    act(() => release(null));
+    await waitFor(() => expect(p.onPatch).toHaveBeenLastCalledWith({ packetTtlHours: 24 }));
+  });
+
+  // Tier A: a combination just given to another row (still saving) is
+  // refused for this row too.
+  it("refuses a combination another row is still saving", async () => {
+    const p = setup();
+    p.onPatch.mockImplementation(() => new Promise(() => {}));
+    await userEvent.click(within(row("Start / Stop Capture")).button("Change"));
+    fireEvent.keyDown(window, { code: "KeyK", metaKey: true, altKey: true });
+    await waitFor(() =>
+      expect(p.onPatch).toHaveBeenCalledWith({ globalShortcut: "CommandOrControl+Alt+K" }),
+    );
+    await userEvent.click(within(row("Always on Top")).button("Change"));
+    fireEvent.keyDown(window, { code: "KeyK", metaKey: true, altKey: true });
+    expect(screen.getByRole("alert")).toHaveTextContent("Already used for “Start / Stop Capture”");
+    expect(p.onPatch).toHaveBeenCalledTimes(1);
+  });
+});
+

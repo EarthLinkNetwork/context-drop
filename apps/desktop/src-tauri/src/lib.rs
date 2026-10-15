@@ -1544,8 +1544,15 @@ pub fn run() {
                         thread::spawn(move || match action {
                             ShortcutAction::ToggleCapture => do_toggle_capture(&app),
                             ShortcutAction::ToggleWindow => toggle_main_window(&app),
+                            // On the main thread, like the tray click and the
+                            // settings commands: one queue, so a save and its
+                            // window/tray update can never be reordered by a
+                            // second press.
                             ShortcutAction::ToggleAlwaysOnTop => {
-                                toggle_always_on_top(&app, OnTopSource::Shortcut)
+                                let handle = app.clone();
+                                let _ = app.run_on_main_thread(move || {
+                                    toggle_always_on_top(&handle, OnTopSource::Shortcut)
+                                });
                             }
                         });
                     }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type {
   DisplayInfo,
   Settings,
@@ -56,8 +56,10 @@ const TABS: { id: SettingsTab; label: string }[] = [
 
 /** Settings, split into tabs. Every change is saved at once (no Save button). */
 export function SettingsView(props: Props) {
-  const { tab, onTabChange, settings, onPatch } = props;
-  const { save, savedKey, error } = useAutoSave(onPatch);
+  const { tab, onTabChange, onPatch } = props;
+  const { save, savedKey, error, pending } = useAutoSave(onPatch);
+  // What the user last chose: saved settings plus changes still being saved.
+  const settings = { ...props.settings, ...pending };
   return (
     <section className="panel settings-panel">
       <nav className="subtabs" role="tablist" aria-label="Settings sections">
@@ -82,7 +84,7 @@ export function SettingsView(props: Props) {
       )}
 
       <div className="subtab-panel" hidden={tab !== "shortcuts"}>
-        <ShortcutsTab {...props} save={save} savedKey={savedKey} />
+        <ShortcutsTab {...props} settings={settings} save={save} savedKey={savedKey} />
       </div>
       <div className="subtab-panel" hidden={tab !== "window"}>
         <WindowTab
@@ -275,25 +277,15 @@ function Toggle({
   saved: boolean;
   onChange: (value: boolean) => Promise<boolean>;
 }) {
-  // Show the clicked value at once (a quick second click toggles back instead
-  // of re-sending the same value); follow the saved value once saves settle.
-  const [pending, setPending] = useState<boolean | null>(null);
-  const inFlight = useRef(0);
+  // `checked` already includes a change still being saved, so a quick second
+  // click toggles back instead of re-sending the same value.
   return (
     <label className="field field-inline">
       <input
         type="checkbox"
         aria-label={label}
-        checked={pending ?? checked}
-        onChange={(e) => {
-          const v = e.target.checked;
-          setPending(v);
-          inFlight.current += 1;
-          void onChange(v).finally(() => {
-            inFlight.current -= 1;
-            if (inFlight.current === 0) setPending(null);
-          });
-        }}
+        checked={checked}
+        onChange={(e) => void onChange(e.target.checked)}
       />
       <span>
         {text} <SavedMark show={saved} />

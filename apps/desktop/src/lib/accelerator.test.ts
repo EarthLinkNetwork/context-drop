@@ -46,6 +46,20 @@ describe("recordKey", () => {
     }
   });
 
+  // Tier A: every key global-hotkey can register on macOS is recordable with a
+  // modifier — Esc and the keypad operators included (plain Esc cancels).
+  it("records Esc and keypad operators with a modifier", () => {
+    expect(recordKey(key("Escape", { ctrlKey: true }), "mac")).toEqual({
+      kind: "ok",
+      accelerator: "Control+Escape",
+    });
+    expect(recordKey(key("NumpadAdd", { ctrlKey: true }), "mac")).toEqual({
+      kind: "ok",
+      accelerator: "Control+NumpadAdd",
+    });
+    expect(recordKey(key("NumpadSubtract", { metaKey: true }), "mac").kind).toBe("ok");
+  });
+
   // Tier A: on Windows/Linux the Win key alone is not enough (the OS owns it).
   it("needs Ctrl or Alt on other platforms", () => {
     expect(recordKey(key("KeyD", { metaKey: true }), "other").kind).toBe("invalid");
@@ -103,6 +117,15 @@ describe("normalizeAccelerator", () => {
     expect(normalizeAccelerator("shift+cmd+9", "mac")).toBe(a);
     expect(normalizeAccelerator("Cmd+Shift+Digit9", "mac")).toBe(a);
     expect(normalizeAccelerator("Control+Shift+9", "mac")).not.toBe(a);
+    // Every CommandOrControl spelling global-hotkey accepts is the same key.
+    for (const alias of ["CommandOrCtrl", "CmdOrCtrl", "CmdOrControl", "commandorcontrol"]) {
+      expect(normalizeAccelerator(`${alias}+Shift+9`, "mac")).toBe(a);
+    }
+    expect(normalizeAccelerator("Option+K", "mac")).toBe(normalizeAccelerator("Alt+K", "mac"));
+    expect(normalizeAccelerator("Super+K", "mac")).toBe(normalizeAccelerator("Cmd+KeyK", "mac"));
+    expect(normalizeAccelerator("Ctrl+NumPlus", "mac")).toBe(
+      normalizeAccelerator("Ctrl+NumpadAdd", "mac"),
+    );
     // Key spellings global-hotkey treats as one key (a hand-typed v0.1.8 value).
     expect(normalizeAccelerator("CmdOrCtrl+Shift+-", "mac")).toBe(
       normalizeAccelerator("CommandOrControl+Shift+Minus", "mac"),

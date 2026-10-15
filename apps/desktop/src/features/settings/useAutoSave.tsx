@@ -7,11 +7,19 @@ import type { Settings } from "../../lib/api";
  * settings, so nothing else is undone). Saves are sent one after another, in
  * the order they were made. `savedKey` names the field saved most recently,
  * for a short "Saved" mark; `error` is the last failure, shown in the tab.
+ *
+ * `pending` holds every change not yet saved+refreshed. The tabs show and
+ * compare against `{...saved, ...pending}` (what the user last chose), so a
+ * check made while an earlier save is still in flight — "is this number
+ * different?", "is this key already used?" — sees that earlier change too.
  */
 export function useAutoSave(onPatch: (patch: Partial<Settings>) => Promise<string | null>) {
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const [savedKey, setSavedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<Partial<Settings>>({});
+  // Per field: number of the latest save that set it; only that save clears it.
+  const seq = useRef<Record<string, number>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -23,8 +31,19 @@ export function useAutoSave(onPatch: (patch: Partial<Settings>) => Promise<strin
 
   const save = useCallback(
     (patch: Partial<Settings>, key: string): Promise<boolean> => {
+      const fields = Object.keys(patch);
+      const mine: Record<string, number> = {};
+      for (const f of fields) mine[f] = seq.current[f] = (seq.current[f] ?? 0) + 1;
+      setPending((p) => ({ ...p, ...patch }));
+      const settle = () =>
+        setPending((p) => {
+          const next: Record<string, unknown> = { ...p };
+          for (const f of fields) if (seq.current[f] === mine[f]) delete next[f];
+          return next as Partial<Settings>;
+        });
       const run = chain.current.then(() => onPatch(patch));
       chain.current = run.catch(() => null);
+      run.then(settle, settle);
       return run.then(
         (err) => {
           if (err) {
@@ -46,7 +65,7 @@ export function useAutoSave(onPatch: (patch: Partial<Settings>) => Promise<strin
     [onPatch],
   );
 
-  return { save, savedKey, error };
+  return { save, savedKey, error, pending };
 }
 
 /** A short confirmation shown next to a setting right after it was saved. */
