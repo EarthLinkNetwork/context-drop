@@ -19,7 +19,12 @@ export function UpdateBanner({ update, capturing, onInstall }: Props) {
           <div className="update-banner-row">
             <span>⬆️ Context Drop v{version} is available.</span>
             {!update.blockedReason && (
-              <button type="button" className="btn btn-small btn-start" onClick={onInstall}>
+              <button
+                type="button"
+                className="btn btn-small btn-start"
+                disabled={update.checking}
+                onClick={onInstall}
+              >
                 Install &amp; Restart
               </button>
             )}

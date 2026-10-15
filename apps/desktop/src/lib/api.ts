@@ -71,7 +71,10 @@ export interface Settings {
 
 /** In-app updates (mirrors updater::UpdateStatus in the backend). */
 export interface UpdateStatus {
+  /** A re-check while an update is known keeps "available" (see `checking`). */
   state: "idle" | "checking" | "upToDate" | "available" | "downloading" | "installing";
+  /** A check is running. */
+  checking: boolean;
   /** The newer version, while one is known. */
   version: string | null;
   notes: string | null;

@@ -1,7 +1,8 @@
 # Contributing to Context Drop
 
-Thanks for your interest in contributing to Context Drop — a local-only desktop
-utility that collects raw context (screenshots, logs, console output, JSON
+Thanks for your interest in contributing to Context Drop — a desktop utility
+that keeps packet data on the machine (its only network use is the update
+check) and collects raw context (screenshots, logs, console output, JSON
 responses, stack traces, copied text/images, files) into a temporary **Context
 Packet** and routes it to a chosen Claude Code session, where an **isolated
 subagent** processes it and returns a compact result.

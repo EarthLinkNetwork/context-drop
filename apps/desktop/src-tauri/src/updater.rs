@@ -35,8 +35,12 @@ const TRAY_CHECK_TEXT: &str = "Check for Updates…";
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatus {
-    /// "idle" | "checking" | "upToDate" | "available" | "downloading" | "installing"
+    /// "idle" | "checking" | "upToDate" | "available" | "downloading" | "installing".
+    /// A re-check while an update is already known keeps "available" (the
+    /// banner and tray item stay) and only sets `checking`.
     pub state: &'static str,
+    /// A check is running.
+    pub checking: bool,
     /// The newer version, while one is known ("available" and later).
     pub version: Option<String>,
     /// Its release notes.
@@ -61,6 +65,7 @@ impl Default for UpdateStatus {
     fn default() -> Self {
         UpdateStatus {
             state: "idle",
+            checking: false,
             version: None,
             notes: None,
             downloaded: 0,
@@ -165,7 +170,10 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
         return updates.status();
     };
     update_status(app, |s| {
-        s.state = "checking";
+        if s.state != "available" {
+            s.state = "checking";
+        }
+        s.checking = true;
         s.error = None;
         s.error_during = None;
     });
@@ -177,7 +185,7 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
     let now = SystemTime::now();
     match result {
         Ok(found) => {
-            updates.clock.lock().unwrap().last_success = Some(now);
+            updates.clock.lock().unwrap().succeeded(now);
             let (version, notes) = match &found {
                 Some(u) => (Some(u.version.clone()), u.body.clone()),
                 None => (None, None),
@@ -189,6 +197,7 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
                 } else {
                     "upToDate"
                 };
+                s.checking = false;
                 s.version = version;
                 s.notes = notes;
                 s.checked_at = Some(now_ms());
@@ -196,11 +205,12 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
             });
         }
         Err(e) => {
-            updates.clock.lock().unwrap().last_failure = Some(now);
+            updates.clock.lock().unwrap().failed(now);
             // A failed re-check keeps an update that was already found.
             let has_pending = updates.pending.lock().unwrap().is_some();
             update_status(app, |s| {
                 s.state = if has_pending { "available" } else { "idle" };
+                s.checking = false;
                 s.error = Some(format!("Could not check for updates: {e}"));
                 s.error_during = Some("check");
             });
@@ -214,14 +224,22 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
 /// ready for another try.
 pub async fn install(app: &AppHandle) -> Result<(), String> {
     let updates = app.state::<Updates>();
+    // A refusal before the download starts is shown like any install failure.
+    let refuse = |message: String| {
+        update_status(app, |s| {
+            s.error = Some(message.clone());
+            s.error_during = Some("install");
+        });
+        Err(message)
+    };
     let Some(_busy) = Busy::take(app) else {
-        return Err("An update check or install is already running.".into());
+        return refuse("An update check is still running. Try again in a moment.".into());
     };
     if let Some(problem) = location_problem() {
-        return Err(problem);
+        return refuse(problem);
     }
     let Some(mut update) = updates.pending.lock().unwrap().clone() else {
-        return Err("No update is ready. Check for updates first.".into());
+        return refuse("No update is ready. Check for updates first.".into());
     };
     update.timeout = Some(DOWNLOAD_TIMEOUT);
 

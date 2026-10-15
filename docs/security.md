@@ -1,6 +1,6 @@
 # Security & Privacy
 
-Context Drop is a local-only desktop utility. It collects raw context (screenshots, UI images, browser console output, server/debug logs, JSON responses, network results, stack traces, external docs, copied text and images, Finder/Explorer files) into a temporary **Context Packet**, then routes it to a chosen Claude Code session where an **isolated subagent** processes it and returns a compact result.
+Context Drop is a desktop utility that keeps packet data on the machine (its only network use is the update check described below). It collects raw context (screenshots, UI images, browser console output, server/debug logs, JSON responses, network results, stack traces, external docs, copied text and images, Finder/Explorer files) into a temporary **Context Packet**, then routes it to a chosen Claude Code session where an **isolated subagent** processes it and returns a compact result.
 
 This document describes the security and privacy guarantees that follow from that design. Everything here is a property of Context Drop itself; the one boundary where content can leave the machine is called out explicitly under [The model-provider boundary](#the-model-provider-boundary).
 
@@ -92,7 +92,7 @@ SQLite runs in WAL mode with a 5s busy timeout, `foreign_keys` ON, and `synchron
 
 ## Network use: update checks only
 
-Context Drop, as a product, makes the following guarantees. They are absent by design, not "off by default" toggles:
+Context Drop, as a product, makes the following guarantees:
 
 - **No telemetry or analytics** beyond the anonymous update check described below
 - **No cloud backend**

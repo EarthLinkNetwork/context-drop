@@ -8,6 +8,7 @@ import { UpdatesPanel } from "./UpdatesPanel";
 function status(over: Partial<UpdateStatus> = {}): UpdateStatus {
   return {
     state: "idle",
+    checking: false,
     version: null,
     notes: null,
     downloaded: 0,
@@ -62,6 +63,20 @@ describe("UpdateBanner", () => {
     expect(screen.getByText("Move it to Applications.")).toBeInTheDocument();
   });
 
+  // Tier A: a re-check while an update is already known keeps the banner
+  // (the update does not vanish for the length of the check).
+  it("keeps a found update on screen while re-checking", () => {
+    render(
+      <UpdateBanner
+        update={status({ state: "available", checking: true, version: "0.1.11" })}
+        capturing={false}
+        onInstall={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("update-banner")).toHaveTextContent("v0.1.11 is available");
+    expect(screen.getByRole("button", { name: "Install & Restart" })).toBeDisabled();
+  });
+
   // Tier A: while capturing, the user is told the restart turns Capture off.
   it("warns that Capture turns off when capturing", () => {
     render(
@@ -114,7 +129,7 @@ describe("UpdatesPanel", () => {
     rerender(
       <UpdatesPanel
         appVersion="0.1.10"
-        update={status({ state: "checking" })}
+        update={status({ state: "checking", checking: true })}
         onCheck={onCheck}
         onInstall={vi.fn()}
       />,

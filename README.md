@@ -2,7 +2,7 @@
 
 **Collect raw context once. Route it to the right Claude Code session. Let an isolated subagent do the reading — so your main conversation stays clean.**
 
-Context Drop is a local-only desktop utility (tray / menu-bar) that gathers lots of raw material — screenshots, UI images, browser console output, server/debug logs, JSON responses, network results, stack traces, external docs, and multiple copied text fragments, images, or Finder/Explorer files — into a temporary **Context Packet**. When you are ready, you route that packet to a specific Claude Code session, where an **isolated subagent** reads the raw material and returns a **compact result** — without dumping the raw bytes into your main Claude conversation.
+Context Drop is a desktop utility (tray / menu-bar) that keeps everything on your machine (its only network use is the update check — see [Privacy](#6-privacy)). It gathers lots of raw material — screenshots, UI images, browser console output, server/debug logs, JSON responses, network results, stack traces, external docs, and multiple copied text fragments, images, or Finder/Explorer files — into a temporary **Context Packet**. When you are ready, you route that packet to a specific Claude Code session, where an **isolated subagent** reads the raw material and returns a **compact result** — without dumping the raw bytes into your main Claude conversation.
 
 ## Documentation
 

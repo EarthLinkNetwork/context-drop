@@ -13,20 +13,25 @@ export function UpdatesPanel({ appVersion, update, onCheck, onInstall }: Props) 
     return <p className="hint">In-app updates are available on macOS only.</p>;
   }
   const working =
-    update.state === "checking" || update.state === "downloading" || update.state === "installing";
+    update.checking || update.state === "downloading" || update.state === "installing";
   return (
     <div className="updates-panel" data-testid="updates-panel">
       <div className="settings-actions">
         <span>Context Drop v{appVersion}</span>
         <button type="button" className="btn btn-small" disabled={working} onClick={onCheck}>
-          {update.state === "checking" ? "Checking…" : "Check for Updates"}
+          {update.checking ? "Checking…" : "Check for Updates"}
         </button>
       </div>
       <p className="hint" role="status" data-testid="updates-status">
         {statusText(update)}
       </p>
       {update.state === "available" && !update.blockedReason && (
-        <button type="button" className="btn btn-small btn-start" onClick={onInstall}>
+        <button
+          type="button"
+          className="btn btn-small btn-start"
+          disabled={update.checking}
+          onClick={onInstall}
+        >
           Install v{update.version} &amp; Restart
         </button>
       )}

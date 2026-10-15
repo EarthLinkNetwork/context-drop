@@ -50,6 +50,11 @@ on:
 permissions:
   contents: write
 
+# One release at a time: two tags pushed together must not publish out of order.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build & release (macOS)
@@ -194,6 +199,15 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::Release $TAG already exists; not overwriting it (delete it first, or release a new version)."
             exit 1
+          fi
+          # Never move "latest" (what installed apps update to) backwards.
+          current=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+          if [ -n "$current" ]; then
+            newest=$(printf '%s\n%s\n' "${current#v}" "${TAG#v}" | sort -V | tail -n 1)
+            if [ "$newest" != "${TAG#v}" ] || [ "$current" = "$TAG" ]; then
+              echo "::error::$TAG is not newer than the latest release $current"
+              exit 1
+            fi
           fi
           gh release create "$TAG" "$DMG" "$TARBALL" "$TARBALL.sig" updater-out/latest.json \
             --draft --title "Context Drop $TAG" \

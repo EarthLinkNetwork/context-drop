@@ -1,6 +1,7 @@
 # Security Policy
 
-Context Drop is a **local-only** desktop utility. It collects raw context (screenshots,
+Context Drop is a desktop utility that keeps packet data **on the machine** (its only
+network use is the [update check](#update-checks)). It collects raw context (screenshots,
 UI images, browser console output, server/debug logs, JSON responses, network results,
 stack traces, external docs, and multiple copied text/image fragments or files) into a
 temporary **Context Packet** and routes it to a chosen Claude Code session, where an

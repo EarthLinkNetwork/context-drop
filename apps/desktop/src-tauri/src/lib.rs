@@ -1837,8 +1837,14 @@ pub fn run() {
             tray.build(app)?;
 
             // Automatic update checks (Settings → Advanced → Updates).
+            // Fails closed: a tick that cannot read the setting skips (a user who
+            // turned checks off must never be checked because the DB was busy).
             updater::spawn_automatic_checks(handle.clone(), |app| {
-                load_settings_or_default(app).auto_check_updates
+                let state = app.state::<AppState>();
+                open_db(&state.storage)
+                    .ok()
+                    .and_then(|db| db.load_settings().ok())
+                    .is_some_and(|s| s.auto_check_updates)
             });
 
             Ok(())

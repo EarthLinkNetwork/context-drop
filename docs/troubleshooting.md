@@ -3,7 +3,8 @@
 This guide covers the most common issues when using Context Drop and its
 `context-drop` companion CLI and Claude Code plugin.
 
-Context Drop is local-only. The desktop app and the CLI coordinate **only**
+Context Drop keeps everything on your machine (its only network use is the
+update check). The desktop app and the CLI coordinate **only**
 through the shared SQLite database and the filesystem — there is no daemon, no
 HTTP/WebSocket/DB server, and no network listener. If something is not behaving
 as expected, the cause is almost always local state (capture is off, no packet

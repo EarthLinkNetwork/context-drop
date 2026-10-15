@@ -1,6 +1,7 @@
 # Context Drop — Architecture
 
-Context Drop is a local-only desktop utility that collects a burst of raw
+Context Drop is a desktop utility that keeps packet data on the machine (its
+only network use is the update check) and collects a burst of raw
 context — screenshots, UI images, browser console output, server/debug logs,
 JSON responses, network results, stack traces, external docs, and multiple
 copied text fragments, copied images, or Finder/Explorer files — into a

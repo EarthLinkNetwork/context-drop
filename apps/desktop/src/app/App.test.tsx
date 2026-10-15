@@ -68,6 +68,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     appVersion: "9.9.9",
     update: {
       state: "idle",
+      checking: false,
       version: null,
       notes: null,
       downloaded: 0,
