@@ -17,6 +17,7 @@ const settings: Settings = {
   maxPacketBytes: 200 * 1024 * 1024,
   autoCleanup: true,
   shortAliasInstalled: false,
+  autoCheckUpdates: true,
 };
 
 const DISPLAYS: DisplayInfo[] = [
@@ -28,7 +29,14 @@ function active(action: ShortcutStatus["action"], accelerator: string): Shortcut
   return { action, accelerator, state: "active", duplicateOf: null };
 }
 
-function setup(over: { settings?: Partial<Settings>; tab?: SettingsTab; shortcuts?: ShortcutStatus[] } = {}) {
+function setup(
+  over: {
+    settings?: Partial<Settings>;
+    tab?: SettingsTab;
+    shortcuts?: ShortcutStatus[];
+    updatesSupported?: boolean;
+  } = {},
+) {
   const onPatch = vi.fn().mockResolvedValue(null);
   const onBeginRecording = vi.fn();
   const onEndRecording = vi.fn();
@@ -59,6 +67,8 @@ function setup(over: { settings?: Partial<Settings>; tab?: SettingsTab; shortcut
     subscribeRecording,
     onOpenDataFolder: vi.fn(),
     claudeSetup: <div>Claude Code Setup</div>,
+    updates: <div>Updates panel</div>,
+    updatesSupported: over.updatesSupported ?? true,
   };
   const view = render(<SettingsView {...props} />);
   return { ...props, pressed, view };
@@ -273,6 +283,24 @@ describe("Shortcuts tab — recording survives polling", () => {
     fireEvent.focus(f);
     fireEvent.change(f, { target: { value: "36" } });
     expect(f).toHaveValue(36);
+  });
+});
+
+describe("Advanced tab: updates", () => {
+  // Tier A: the automatic update check toggle saves autoCheckUpdates at once.
+  it("turns automatic update checks off", async () => {
+    const p = setup({ tab: "advanced" });
+    expect(screen.getByText("Updates panel")).toBeInTheDocument();
+    const box = screen.getByLabelText("Check for updates automatically");
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith({ autoCheckUpdates: false }));
+  });
+
+  // Tier A: where there are no updates (not macOS), there is no setting for them.
+  it("hides the automatic check where updates are not available", () => {
+    setup({ tab: "advanced", updatesSupported: false });
+    expect(screen.queryByLabelText("Check for updates automatically")).toBeNull();
   });
 });
 

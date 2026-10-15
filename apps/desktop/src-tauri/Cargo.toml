@@ -33,3 +33,4 @@ serde_json = "1"
 
 context-drop-core = { path = "../../../crates/context-drop-core" }
 context-drop-clipboard = { path = "../../../crates/context-drop-clipboard" }
+tauri-plugin-updater = "2"

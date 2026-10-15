@@ -1,6 +1,7 @@
 # Context Drop — Architecture
 
-Context Drop is a local-only desktop utility that collects a burst of raw
+Context Drop is a desktop utility that keeps packet data on the machine (its
+only network use is the update check) and collects a burst of raw
 context — screenshots, UI images, browser console output, server/debug logs,
 JSON responses, network results, stack traces, external docs, and multiple
 copied text fragments, copied images, or Finder/Explorer files — into a
@@ -462,9 +463,13 @@ preserved intact.
 
 ## Security and privacy
 
-Context Drop is local-only by construction:
+Context Drop keeps packets on the machine by construction:
 
-- No telemetry, no analytics, no cloud backend, no remote storage.
+- No telemetry or analytics beyond the anonymous update check; no cloud backend,
+  no remote storage.
+- The only network use is the desktop app's update check (GitHub `latest.json`
+  at launch and about once a day, can be turned off) and, when the user chooses
+  Install, downloading the signed update. See SECURITY.md → Update checks.
 - No external API for Context Drop functionality.
 - No clipboard-content network transmission **by** Context Drop.
 - No always-on clipboard collection; no hidden monitoring.
@@ -474,7 +479,7 @@ Packet data stays on the machine. The **only** content that ever leaves the
 machine is when Claude Code *itself* sends packet material to its configured
 model provider as its subagent reads the files — that is Claude Code's normal
 behavior, **not** Context Drop transmitting data. This distinction matters:
-Context Drop moves nothing off the machine; it merely places files where a
+Context Drop moves no packet content off the machine; it merely places files where a
 Claude Code subagent can read them locally.
 
 App logs never contain clipboard raw content, file contents, image content, or

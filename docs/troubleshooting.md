@@ -3,7 +3,8 @@
 This guide covers the most common issues when using Context Drop and its
 `context-drop` companion CLI and Claude Code plugin.
 
-Context Drop is local-only. The desktop app and the CLI coordinate **only**
+Context Drop keeps everything on your machine (its only network use is the
+update check). The desktop app and the CLI coordinate **only**
 through the shared SQLite database and the filesystem — there is no daemon, no
 HTTP/WebSocket/DB server, and no network listener. If something is not behaving
 as expected, the cause is almost always local state (capture is off, no packet
@@ -395,8 +396,9 @@ If you are unsure what state a packet is in, `context-drop status` /
 ## A note on privacy (this is not a bug)
 
 Context Drop performs **no** network transmission of clipboard content itself:
-no telemetry, no analytics, no cloud backend, no remote storage, no always-on
-clipboard collection. Packet data stays local.
+no telemetry or analytics, no cloud backend, no remote storage, no always-on
+clipboard collection. Packet data stays local. Its only network use is the
+update check (Settings → Advanced → Updates; see SECURITY.md → Update checks).
 
 The **only** content that leaves your machine is when **Claude Code itself**
 sends packet material to its configured model provider as its subagent reads the

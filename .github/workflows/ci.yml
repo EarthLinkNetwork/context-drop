@@ -77,6 +77,10 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Release script tests
+        if: runner.os != 'Windows' # release.yml runs on macOS
+        run: bash .github/scripts/test-check-newer-than-latest.sh
+
       - name: Build
         run: pnpm build
 

@@ -26,6 +26,10 @@ export interface AppStateHook {
   installIntegration: (configDir?: string) => Promise<string | undefined>;
   installShortAlias: (configDir?: string) => Promise<string | undefined>;
   openDataFolder: () => Promise<void>;
+  /** Check for updates now. Does not set `busy`; the result is in the snapshot. */
+  checkForUpdates: () => Promise<void>;
+  /** Install the update found (the app restarts). Resolves the error, if any. */
+  installUpdate: () => Promise<string | null>;
 }
 
 /**
@@ -136,6 +140,29 @@ export function useAppState(pollMs = 1500): AppStateHook {
     installIntegration: (configDir) => act(() => api.installIntegration(configDir)),
     installShortAlias: (configDir) => act(() => api.installShortAlias(configDir)),
     openDataFolder: () => act(api.openDataFolder).then(() => undefined),
+    // Progress and errors arrive in the snapshot's `update` (the backend keeps
+    // them), so these only refresh it.
+    checkForUpdates: async () => {
+      try {
+        await api.checkForUpdates();
+      } catch {
+        // Shown from the snapshot's update.error.
+      }
+      await refresh();
+    },
+    installUpdate: async () => {
+      // Refresh while the install runs, so its progress shows at once.
+      const run = api.installUpdate();
+      void refresh();
+      try {
+        await run;
+        return null;
+      } catch (e) {
+        return errorMessage(e);
+      } finally {
+        await refresh();
+      }
+    },
   };
 }
 

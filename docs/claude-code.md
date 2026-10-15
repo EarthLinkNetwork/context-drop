@@ -320,8 +320,9 @@ The CLI commands the plugin relies on are `claim`, `consume`, `undo`, `status`, 
 
 ## Privacy note specific to the integration
 
-Context Drop itself performs **no telemetry, no analytics, no cloud backend, and no network
-transmission of clipboard content**. Packet data stays local.
+Context Drop itself performs **no telemetry or analytics, no cloud backend, and no network
+transmission of clipboard content**. Packet data stays local. (The desktop app's only network
+use is its update check — see SECURITY.md → Update checks.)
 
 The **only** content that leaves your machine is when **Claude Code itself** sends packet
 material to its configured model provider as the `context-investigator` subagent reads it.

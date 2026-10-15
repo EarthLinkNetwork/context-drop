@@ -2,7 +2,7 @@
 
 **Collect raw context once. Route it to the right Claude Code session. Let an isolated subagent do the reading — so your main conversation stays clean.**
 
-Context Drop is a local-only desktop utility (tray / menu-bar) that gathers lots of raw material — screenshots, UI images, browser console output, server/debug logs, JSON responses, network results, stack traces, external docs, and multiple copied text fragments, images, or Finder/Explorer files — into a temporary **Context Packet**. When you are ready, you route that packet to a specific Claude Code session, where an **isolated subagent** reads the raw material and returns a **compact result** — without dumping the raw bytes into your main Claude conversation.
+Context Drop is a desktop utility (tray / menu-bar) that keeps everything on your machine (its only network use is the update check — see [Privacy](#6-privacy)). It gathers lots of raw material — screenshots, UI images, browser console output, server/debug logs, JSON responses, network results, stack traces, external docs, and multiple copied text fragments, images, or Finder/Explorer files — into a temporary **Context Packet**. When you are ready, you route that packet to a specific Claude Code session, where an **isolated subagent** reads the raw material and returns a **compact result** — without dumping the raw bytes into your main Claude conversation.
 
 ## Documentation
 
@@ -43,7 +43,9 @@ The main agent must not read packet text, logs, images, JSON, or raw files. It w
 
 ## 3. Install
 
-**1. Download the desktop app** from the [**Releases**](https://github.com/EarthLinkNetwork/context-drop/releases) page. The macOS build is signed with a Developer ID certificate and **notarized by Apple**, so it opens without a Gatekeeper warning. Unzip it, move **Context Drop.app** to `/Applications`, and open it (it lives in the menu bar). The desktop app ships the `context-drop` companion CLI — end users need no Node.js, npm, or Rust.
+**1. Download the desktop app** from the [**Releases**](https://github.com/EarthLinkNetwork/context-drop/releases) page. The macOS build is signed with a Developer ID certificate and **notarized by Apple**, so it opens without a Gatekeeper warning. Open the DMG, move **Context Drop.app** to `/Applications`, and open it (it lives in the menu bar). The desktop app ships the `context-drop` companion CLI — end users need no Node.js, npm, or Rust.
+
+From v0.1.10 on, the app **updates itself**: when a new release is out, the window shows **Install & Restart** (and the menu-bar menu shows **Update to vX.Y.Z…**). Settings → Advanced → Updates has **Check for Updates** and the automatic-check setting. Versions before v0.1.10 have no updater — install v0.1.10 from the Releases page once by hand.
 
 > Current releases are **macOS (Apple Silicon / arm64)**. Intel-Mac (universal) and Windows builds are planned; building from source works on all three (see CONTRIBUTING).
 
@@ -112,12 +114,14 @@ Claims are atomic via SQLite `BEGIN IMMEDIATE` + a conditional `UPDATE`, so **ex
 
 ## 6. Privacy
 
-Context Drop is **local-only**. There is:
+Context Drop keeps your packets **on your machine**. There is:
 
-- no telemetry, no analytics,
+- no telemetry or analytics beyond the anonymous update check below,
 - no cloud backend, no remote storage, no external API for Context Drop functionality,
 - no clipboard-content network transmission **by** Context Drop,
 - no always-on clipboard collection, and no hidden monitoring.
+
+**Update checks — Context Drop's only network use.** The desktop app reads the latest release's `latest.json` from GitHub at launch and about once a day, and downloads the update (a signed `.app`) only when you choose **Install & Restart**. No identifiers or packet data are sent; GitHub sees your IP address and the updater's User-Agent. The maintainers look only at GitHub's public per-file download counts (DMG, update, `latest.json`) as a rough count of installs in use. Turn the automatic check off in **Settings → Advanced → Updates** (then nothing is sent unless you press **Check for Updates**).
 
 Packet data stays on your machine. The desktop app and CLI coordinate **only** through the shared SQLite database and filesystem — there is no daemon, no HTTP/WebSocket/DB server, no network listener, and no localhost unauthenticated HTTP service.
 

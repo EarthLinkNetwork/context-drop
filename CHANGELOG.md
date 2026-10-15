@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-10-15
+
+### Added
+
+- **In-app updates.** Context Drop checks GitHub for a newer release at launch
+  and about once a day. When one is out, the window shows **Install &
+  Restart** and the menu-bar menu shows **Update to vX.Y.Z…**; the update is
+  downloaded, its signature verified, and the app restarts into the new
+  version. **Settings → Advanced → Updates** has **Check for Updates** and
+  turns the automatic check off. An update is installed only if it is signed
+  with the project's key for exactly that version and is newer than the
+  running one. (v0.1.9 and earlier have no updater — install v0.1.10 by hand
+  once.)
+- Releases now include the update tarball, its signature and `latest.json`,
+  checked before publishing; `.github/scripts/release-stats.sh` lists download
+  counts per release (DMG, in-app updates, update checks).
+
+### Changed
+
+- **Privacy:** the update check is Context Drop's only network use. It sends
+  no identifiers or packet data (GitHub sees the IP address); the maintainers
+  read only GitHub's public download counts. README, SECURITY.md and the
+  in-app privacy text say so.
+
 ## [0.1.9] - 2026-10-15
 
 ### Added

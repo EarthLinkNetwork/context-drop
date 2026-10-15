@@ -65,6 +65,31 @@ export interface Settings {
   maxPacketBytes: number;
   autoCleanup: boolean;
   shortAliasInstalled: boolean;
+  /** Check GitHub for a newer release at launch and about once a day. */
+  autoCheckUpdates: boolean;
+}
+
+/** In-app updates (mirrors updater::UpdateStatus in the backend). */
+export interface UpdateStatus {
+  /** A re-check while an update is known keeps "available" (see `checking`). */
+  state: "idle" | "checking" | "upToDate" | "available" | "downloading" | "installing";
+  /** A check is running. */
+  checking: boolean;
+  /** The newer version, while one is known. */
+  version: string | null;
+  notes: string | null;
+  /** Download progress in bytes. */
+  downloaded: number;
+  total: number | null;
+  /** The last check's or install's failure. */
+  error: string | null;
+  errorDuring: "check" | "install" | null;
+  /** When the last successful check finished (ms since the epoch). */
+  checkedAt: number | null;
+  /** Why this copy of the app cannot be replaced (dev build, disk image…). */
+  blockedReason: string | null;
+  /** Updates exist for this platform (macOS only). */
+  supported: boolean;
 }
 
 export interface AppSnapshot {
@@ -84,6 +109,7 @@ export interface AppSnapshot {
   notice: string | null;
   /** The running app's version (e.g. "0.1.6"). */
   appVersion: string;
+  update: UpdateStatus;
 }
 
 export type ShortcutActionId = "capture" | "window" | "onTop";
@@ -138,6 +164,10 @@ export const api = {
     invoke<string>("item_full_image", { packetId, itemId }),
   deleteItem: (packetId: string, itemId: string) =>
     invoke<void>("delete_item", { packetId, itemId }),
+  /** Check GitHub for a newer release now; resolves to the status after. */
+  checkForUpdates: () => invoke<UpdateStatus>("check_for_updates"),
+  /** Download, verify and install the update found, then restart the app. */
+  installUpdate: () => invoke<void>("install_update"),
 };
 
 export type Api = typeof api;

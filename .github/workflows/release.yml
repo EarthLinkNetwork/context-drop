@@ -1,8 +1,14 @@
 # Release workflow — signed + notarized macOS build on tag push.
 #
-# Pushing a version tag (e.g. `v0.1.1`) builds the desktop app, signs it with the
-# Developer ID certificate, notarizes it with Apple, and attaches the bundle to a
-# GitHub Release.
+# Pushing a version tag (`vX.Y.Z`, digits only, equal to tauri.conf.json's
+# version) builds the desktop app, signs it with the Developer ID certificate,
+# notarizes it with Apple, and publishes a GitHub Release with:
+#   Context-Drop-vX.Y.Z-macos-arm64.dmg              new installs
+#   Context-Drop-vX.Y.Z-macos-arm64.app.tar.gz(.sig) the in-app update + its signature
+#   latest.json                                      what installed apps check
+# The release is created as a DRAFT with every file, checked, then published
+# as the latest release — so `releases/latest/download/latest.json` is never
+# missing or stale. An existing release for the tag is never overwritten.
 #
 # Required repository Secrets (Settings → Secrets and variables → Actions):
 #   APPLE_CERTIFICATE           base64 of the exported "Developer ID Application"
@@ -13,24 +19,41 @@
 #   APPLE_ID                    the Apple ID email on that team (uehara@eln.ne.jp)
 #   APPLE_PASSWORD              an app-specific password for that Apple ID
 #   APPLE_TEAM_ID               6XC66ZV9WK
+#   TAURI_SIGNING_PRIVATE_KEY   the in-app updater's signing key (minisign, made
+#                               with `tauri signer generate`); its public half is
+#                               plugins.updater.pubkey in tauri.conf.json
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  that key's password
+# The updater key is also kept in dotvault (project context-drop, env
+# production). Losing it means installed apps can no longer be updated.
 #
-# All six are REQUIRED: the job fails fast (naming the missing ones) instead of
+# All eight are REQUIRED: the job fails fast (naming the missing ones) instead of
 # failing later inside codesign. GITHUB_TOKEN is provided automatically.
 #
-# A tag push builds, signs, notarizes, and publishes the GitHub Release.
-# A manual run (workflow_dispatch) does the same build/sign/notarize as a dry
-# run but publishes NOTHING — the notarized DMG is uploaded as a workflow
-# artifact instead (so running it from `main` can never create a "main" release).
+# A manual run (workflow_dispatch) does the same build/sign/notarize/checks as a
+# dry run but publishes NOTHING — the files are uploaded as a workflow artifact
+# instead (so running it from `main` can never create a "main" release). Its
+# optional `version` input builds that version instead of tauri.conf.json's
+# (e.g. 0.1.10-rc.1, to test updating from it to the real release).
 name: Release
 
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Build this version instead of tauri.conf.json's (dry run only, e.g. 0.1.10-rc.1)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
+
+# One release at a time: two tags pushed together must not publish out of order.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -56,6 +79,34 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The version being built and the tag its files are named after. A tag
+      # push must be vX.Y.Z (no pre-release part: those would become the
+      # "latest" release every installed app updates to) and must equal
+      # tauri.conf.json's version, which is what the signature binds.
+      - name: Resolve version
+        id: ver
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          conf=$(jq -r .version apps/desktop/src-tauri/tauri.conf.json)
+          if [ "$EVENT" = push ]; then
+            [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag $REF_NAME is not vX.Y.Z"; exit 1; }
+            [ "${REF_NAME#v}" = "$conf" ] || { echo "::error::tag $REF_NAME does not match tauri.conf.json version $conf"; exit 1; }
+            version=$conf
+          else
+            version=${INPUT_VERSION:-$conf}
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::not a version: $version"; exit 1; }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          # Release-only config: build the update tarball + signature, at this version.
+          jq -n --arg v "$version" '{version: $v, bundle: {createUpdaterArtifacts: true}}' \
+            > "$RUNNER_TEMP/tauri.release.conf.json"
+          cat "$RUNNER_TEMP/tauri.release.conf.json"
+
       - name: Check signing secrets
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -64,9 +115,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           missing=""
-          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
@@ -75,8 +128,9 @@ jobs:
           fi
 
       # Builds the frontend and bundles the app; tauri signs and notarizes the
-      # .app. It never publishes: the DMG itself is notarized + stapled below
-      # first (as the local releases were), then published on a tag push.
+      # .app, and makes the update tarball from it, signed with the updater key.
+      # It never publishes: the DMG itself is notarized + stapled below first
+      # (as the local releases were), then published on a tag push.
       - name: Build and sign (tauri)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -86,8 +140,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
+          args: --config ${{ runner.temp }}/tauri.release.conf.json
 
       - name: Notarize and staple the DMG
         id: dmg
@@ -95,11 +152,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          REF_NAME: ${{ github.ref_name }}
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
           src=$(ls apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n 1)
-          out="Context-Drop-${REF_NAME//\//-}-macos-arm64.dmg"
+          out="Context-Drop-${TAG}-macos-arm64.dmg"
           cp "$src" "$out"
           xcrun notarytool submit "$out" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" --wait --timeout 30m | tee notarize.log
@@ -109,25 +166,59 @@ jobs:
           spctl -a -vvv -t install "$out"
           echo "path=$out" >> "$GITHUB_OUTPUT"
 
+      # The update tarball, its signature and latest.json — checked before
+      # anything is published (signature + signed version, codesign +
+      # Gatekeeper, latest.json contents). See the script's header.
+      - name: Prepare and verify the in-app update files
+        id: updater
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          brew install minisign
+          .github/scripts/prepare-updater.sh "$VERSION" "$TAG" \
+            "apps/desktop/src-tauri/target/release/bundle/macos/Context Drop.app.tar.gz" \
+            "$REPO" updater-out
+          echo "tarball=updater-out/Context-Drop-${TAG}-macos-arm64.app.tar.gz" >> "$GITHUB_OUTPUT"
+
       # Only a tag PUSH publishes; any manual run (even on a tag) builds only.
+      # Draft first (drafts are not `releases/latest`), check every file is
+      # there, then publish it as the latest release.
       - name: Publish GitHub Release (tag push)
         if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.ver.outputs.tag }}
           DMG: ${{ steps.dmg.outputs.path }}
+          TARBALL: ${{ steps.updater.outputs.tarball }}
         run: |
+          set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$DMG" --clobber
-          else
-            gh release create "$TAG" "$DMG" --title "Context Drop $TAG" \
-              --notes "See CHANGELOG.md for what's in this release."
+            echo "::error::Release $TAG already exists; not overwriting it (delete it first, or release a new version)."
+            exit 1
           fi
+          # Never move "latest" (what installed apps update to) backwards; a
+          # failure to read the current latest stops the release (fails closed).
+          .github/scripts/check-newer-than-latest.sh "$TAG" "$GITHUB_REPOSITORY"
+          gh release create "$TAG" "$DMG" "$TARBALL" "$TARBALL.sig" updater-out/latest.json \
+            --draft --title "Context Drop $TAG" \
+            --notes "See CHANGELOG.md for what's in this release."
+          want=$(printf '%s\n' "$(basename "$DMG")" "$(basename "$TARBALL")" "$(basename "$TARBALL").sig" latest.json | sort)
+          have=$(gh release view "$TAG" --json assets -q '.assets[].name' | sort)
+          if [ "$want" != "$have" ]; then
+            echo "::error::draft $TAG has the wrong files:"; echo "$have"; exit 1
+          fi
+          gh release edit "$TAG" --draft=false --latest
 
-      - name: Upload notarized DMG (manual dry run)
+      - name: Upload release files (manual dry run)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
-          name: context-drop-macos-arm64
-          path: ${{ steps.dmg.outputs.path }}
+          name: context-drop-${{ steps.ver.outputs.tag }}-macos-arm64
+          path: |
+            ${{ steps.dmg.outputs.path }}
+            updater-out/
           if-no-files-found: error
