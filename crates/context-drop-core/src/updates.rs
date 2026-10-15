@@ -46,11 +46,12 @@ impl CheckClock {
             return false;
         }
         let since = |t: SystemTime| now.duration_since(t).unwrap_or(Duration::ZERO);
-        // A failure newer than the last success holds the next try back.
+        // After a failure newer than the last success, only the back-off
+        // counts (a check that failed soon after a success is retried, not
+        // left until a day after that success).
         if let Some(failed) = self.last_failure {
-            let newer = self.last_success.map_or(true, |ok| failed > ok);
-            if newer && since(failed) < self.retry_delay() {
-                return false;
+            if self.last_success.map_or(true, |ok| failed > ok) {
+                return since(failed) >= self.retry_delay();
             }
         }
         match self.last_success {
@@ -139,6 +140,17 @@ mod tests {
             c.due(true, at(t + 25 * HOUR)),
             "a success resets the back-off"
         );
+    }
+
+    // Tier A: a (manual) check that fails within a day of a success is still
+    // retried an hour later — the failure, not the day-old success, decides.
+    #[test]
+    fn failure_soon_after_a_success_is_retried_in_an_hour() {
+        let mut c = CheckClock::default();
+        c.succeeded(at(0));
+        c.failed(at(HOUR));
+        assert!(!c.due(true, at(2 * HOUR - 1)));
+        assert!(c.due(true, at(2 * HOUR)));
     }
 
     // Tier A: an old failure (before the last success) changes nothing.

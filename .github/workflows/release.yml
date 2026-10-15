@@ -200,15 +200,9 @@ jobs:
             echo "::error::Release $TAG already exists; not overwriting it (delete it first, or release a new version)."
             exit 1
           fi
-          # Never move "latest" (what installed apps update to) backwards.
-          current=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
-          if [ -n "$current" ]; then
-            newest=$(printf '%s\n%s\n' "${current#v}" "${TAG#v}" | sort -V | tail -n 1)
-            if [ "$newest" != "${TAG#v}" ] || [ "$current" = "$TAG" ]; then
-              echo "::error::$TAG is not newer than the latest release $current"
-              exit 1
-            fi
-          fi
+          # Never move "latest" (what installed apps update to) backwards; a
+          # failure to read the current latest stops the release (fails closed).
+          .github/scripts/check-newer-than-latest.sh "$TAG" "$GITHUB_REPOSITORY"
           gh release create "$TAG" "$DMG" "$TARBALL" "$TARBALL.sig" updater-out/latest.json \
             --draft --title "Context Drop $TAG" \
             --notes "See CHANGELOG.md for what's in this release."

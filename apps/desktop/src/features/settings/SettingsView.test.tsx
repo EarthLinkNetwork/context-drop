@@ -29,7 +29,14 @@ function active(action: ShortcutStatus["action"], accelerator: string): Shortcut
   return { action, accelerator, state: "active", duplicateOf: null };
 }
 
-function setup(over: { settings?: Partial<Settings>; tab?: SettingsTab; shortcuts?: ShortcutStatus[] } = {}) {
+function setup(
+  over: {
+    settings?: Partial<Settings>;
+    tab?: SettingsTab;
+    shortcuts?: ShortcutStatus[];
+    updatesSupported?: boolean;
+  } = {},
+) {
   const onPatch = vi.fn().mockResolvedValue(null);
   const onBeginRecording = vi.fn();
   const onEndRecording = vi.fn();
@@ -61,6 +68,7 @@ function setup(over: { settings?: Partial<Settings>; tab?: SettingsTab; shortcut
     onOpenDataFolder: vi.fn(),
     claudeSetup: <div>Claude Code Setup</div>,
     updates: <div>Updates panel</div>,
+    updatesSupported: over.updatesSupported ?? true,
   };
   const view = render(<SettingsView {...props} />);
   return { ...props, pressed, view };
@@ -287,6 +295,12 @@ describe("Advanced tab: updates", () => {
     expect(box).toBeChecked();
     fireEvent.click(box);
     await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith({ autoCheckUpdates: false }));
+  });
+
+  // Tier A: where there are no updates (not macOS), there is no setting for them.
+  it("hides the automatic check where updates are not available", () => {
+    setup({ tab: "advanced", updatesSupported: false });
+    expect(screen.queryByLabelText("Check for updates automatically")).toBeNull();
   });
 });
 

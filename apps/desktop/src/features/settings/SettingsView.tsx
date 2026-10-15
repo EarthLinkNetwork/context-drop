@@ -47,6 +47,8 @@ interface Props {
   claudeSetup: ReactNode;
   /** Settings → Advanced → Updates: version, Check for Updates, the result. */
   updates: ReactNode;
+  /** In-app updates exist on this platform (else no auto-check setting). */
+  updatesSupported: boolean;
 }
 
 const TABS: { id: SettingsTab; label: string }[] = [
@@ -107,6 +109,7 @@ export function SettingsView(props: Props) {
           savedKey={savedKey}
           onOpenDataFolder={props.onOpenDataFolder}
           updates={props.updates}
+          updatesSupported={props.updatesSupported}
         />
       </div>
     </section>
@@ -305,23 +308,27 @@ function AdvancedTab({
   savedKey,
   onOpenDataFolder,
   updates,
+  updatesSupported,
 }: {
   settings: Settings;
   save: Save;
   savedKey: string | null;
   onOpenDataFolder: () => void;
   updates: ReactNode;
+  updatesSupported: boolean;
 }) {
   return (
     <div>
       <h3 className="settings-section-title">Updates</h3>
-      <Toggle
-        label="Check for updates automatically"
-        text="Check for updates automatically (at launch and about once a day)"
-        checked={settings.autoCheckUpdates}
-        saved={savedKey === "autoCheckUpdates"}
-        onChange={(v) => save({ autoCheckUpdates: v }, "autoCheckUpdates")}
-      />
+      {updatesSupported && (
+        <Toggle
+          label="Check for updates automatically"
+          text="Check for updates automatically (at launch and about once a day)"
+          checked={settings.autoCheckUpdates}
+          saved={savedKey === "autoCheckUpdates"}
+          onChange={(v) => save({ autoCheckUpdates: v }, "autoCheckUpdates")}
+        />
+      )}
       {updates}
 
       <h3 className="settings-section-title">Packets</h3>

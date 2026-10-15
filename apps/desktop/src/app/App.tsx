@@ -201,6 +201,7 @@ export function App() {
           onEndRecording={endRecording}
           subscribeRecording={subscribeRecording}
           onOpenDataFolder={() => void state.openDataFolder()}
+          updatesSupported={snap.update.supported}
           updates={
             <UpdatesPanel
               appVersion={snap.appVersion}
