@@ -20,6 +20,7 @@ pub mod id;
 pub mod integration;
 pub mod manifest;
 pub mod packet;
+pub mod placement;
 pub mod project;
 pub mod settings;
 pub mod storage;
@@ -40,7 +41,7 @@ pub use hash::sha256_hex;
 pub use manifest::{ClaimMeta, Manifest, ManifestItem, MANIFEST_SCHEMA_VERSION};
 pub use packet::{ItemKind, Packet, PacketItem, PacketState};
 pub use project::{detect as detect_project, ProjectInfo};
-pub use settings::{Limits, Settings};
+pub use settings::{Limits, Settings, WindowPlacement};
 pub use storage::{data_dir, Storage, APP_IDENTIFIER, DATA_DIR_ENV};
 
 /// The recommended undo window: 5 minutes, per spec.

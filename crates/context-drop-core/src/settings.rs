@@ -19,11 +19,61 @@ pub fn default_global_shortcut() -> String {
     "CommandOrControl+Shift+9".to_string()
 }
 
+/// Default shortcut that shows / hides the window. Distinct from the capture
+/// toggle; an empty value turns it off.
+pub fn default_show_window_shortcut() -> String {
+    "CommandOrControl+Alt+D".to_string()
+}
+
+/// Which screen the window opens on when it is shown (tray click or shortcut).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WindowPlacement {
+    /// The screen the mouse pointer is on.
+    #[default]
+    Cursor,
+    /// A specific display chosen in Settings (`window_display`).
+    Display,
+    /// Wherever the window was last (restored after a restart).
+    Last,
+}
+
+impl WindowPlacement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WindowPlacement::Cursor => "cursor",
+            WindowPlacement::Display => "display",
+            WindowPlacement::Last => "last",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<WindowPlacement> {
+        match s {
+            "cursor" => Some(WindowPlacement::Cursor),
+            "display" => Some(WindowPlacement::Display),
+            "last" => Some(WindowPlacement::Last),
+            _ => None,
+        }
+    }
+}
+
 /// The user-configurable application settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Settings {
+    /// Toggles Capture ON/OFF.
     pub global_shortcut: String,
+    /// Shows / hides the window. Empty = off.
+    pub show_window_shortcut: String,
+    pub window_placement: WindowPlacement,
+    /// Key of the display chosen for `WindowPlacement::Display`
+    /// (see `placement::display_key`). Empty = none chosen yet.
+    pub window_display: String,
+    /// Keep the window above other apps' windows.
+    pub always_on_top: bool,
+    /// Show the window on every desktop (Space), like the Dock's
+    /// "Assign To: All Desktops".
+    pub show_on_all_desktops: bool,
     pub packet_ttl_hours: u32,
     pub max_item_bytes: i64,
     pub max_packet_bytes: i64,
@@ -36,6 +86,11 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             global_shortcut: default_global_shortcut(),
+            show_window_shortcut: default_show_window_shortcut(),
+            window_placement: WindowPlacement::Cursor,
+            window_display: String::new(),
+            always_on_top: false,
+            show_on_all_desktops: false,
             packet_ttl_hours: DEFAULT_TTL_HOURS,
             max_item_bytes: DEFAULT_MAX_ITEM_BYTES,
             max_packet_bytes: DEFAULT_MAX_PACKET_BYTES,
@@ -51,6 +106,8 @@ impl Settings {
         if self.global_shortcut.trim().is_empty() {
             self.global_shortcut = default_global_shortcut();
         }
+        self.global_shortcut = self.global_shortcut.trim().to_string();
+        self.show_window_shortcut = self.show_window_shortcut.trim().to_string();
         if self.packet_ttl_hours == 0 {
             self.packet_ttl_hours = DEFAULT_TTL_HOURS;
         }
@@ -102,20 +159,51 @@ mod tests {
         assert!(s.auto_cleanup);
         assert!(!s.short_alias_installed);
         assert!(!s.global_shortcut.is_empty());
+        assert_ne!(s.show_window_shortcut, s.global_shortcut);
+        assert_eq!(s.window_placement, WindowPlacement::Cursor);
+        assert!(!s.always_on_top);
+        assert!(!s.show_on_all_desktops);
+    }
+
+    // Tier A: settings decoding of the window fields.
+    #[test]
+    fn placement_parse_roundtrips_and_rejects_unknown() {
+        for p in [
+            WindowPlacement::Cursor,
+            WindowPlacement::Display,
+            WindowPlacement::Last,
+        ] {
+            assert_eq!(WindowPlacement::parse(p.as_str()), Some(p));
+        }
+        assert_eq!(WindowPlacement::parse("Cursor"), None);
+        assert_eq!(WindowPlacement::parse(""), None);
+    }
+
+    // Tier A: settings decoding of the window fields.
+    #[test]
+    fn deserializes_settings_missing_new_fields_with_defaults() {
+        // A payload from before the window settings existed still loads.
+        let json = r#"{"globalShortcut":"CommandOrControl+Shift+9","packetTtlHours":24,
+            "maxItemBytes":1,"maxPacketBytes":2,"autoCleanup":true,"shortAliasInstalled":false}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.show_window_shortcut, default_show_window_shortcut());
+        assert_eq!(s.window_placement, WindowPlacement::Cursor);
     }
 
     #[test]
     fn sanitize_fixes_bad_values() {
         let s = Settings {
             global_shortcut: "  ".into(),
+            show_window_shortcut: "  ".into(),
             packet_ttl_hours: 0,
             max_item_bytes: -1,
             max_packet_bytes: 0,
-            auto_cleanup: true,
-            short_alias_installed: false,
+            ..Settings::default()
         }
         .sanitized();
         assert_eq!(s.global_shortcut, default_global_shortcut());
+        // An empty show-window shortcut means "off" and stays empty.
+        assert_eq!(s.show_window_shortcut, "");
         assert_eq!(s.packet_ttl_hours, 24);
         assert!(s.max_item_bytes > 0);
         assert!(s.max_packet_bytes > 0);
@@ -129,5 +217,9 @@ mod tests {
         assert!(json.contains("packetTtlHours"));
         assert!(json.contains("maxItemBytes"));
         assert!(json.contains("shortAliasInstalled"));
+        assert!(json.contains("showWindowShortcut"));
+        assert!(json.contains(r#""windowPlacement":"cursor""#));
+        assert!(json.contains("alwaysOnTop"));
+        assert!(json.contains("showOnAllDesktops"));
     }
 }

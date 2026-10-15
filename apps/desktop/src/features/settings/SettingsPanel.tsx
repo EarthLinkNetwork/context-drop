@@ -1,25 +1,36 @@
 import { useEffect, useState } from "react";
-import type { Settings } from "../../lib/api";
+import type { DisplayInfo, Settings, WindowPlacement } from "../../lib/api";
 
 interface Props {
   settings: Settings;
   shortcutRegistered: boolean;
+  showShortcutRegistered: boolean;
   busy: boolean;
   onSave: (settings: Settings) => void;
   onOpenDataFolder: () => void;
+  /** Connected displays, for the "A specific display" picker. */
+  onListDisplays: () => Promise<DisplayInfo[]>;
 }
 
 const MB = 1024 * 1024;
 
-/** Settings editor: shortcut, TTL, size limits (Claude setup lives in InstallationPanel). */
+/** Settings editor: shortcuts, window, TTL, size limits (Claude setup lives in InstallationPanel). */
 export function SettingsPanel({
   settings,
   shortcutRegistered,
+  showShortcutRegistered,
   busy,
   onSave,
   onOpenDataFolder,
+  onListDisplays,
 }: Props) {
   const [shortcut, setShortcut] = useState(settings.globalShortcut);
+  const [showShortcut, setShowShortcut] = useState(settings.showWindowShortcut);
+  const [placement, setPlacement] = useState<WindowPlacement>(settings.windowPlacement);
+  const [display, setDisplay] = useState(settings.windowDisplay);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(settings.alwaysOnTop);
+  const [allDesktops, setAllDesktops] = useState(settings.showOnAllDesktops);
+  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [ttl, setTtl] = useState(String(settings.packetTtlHours));
   const [itemMb, setItemMb] = useState(String(Math.round(settings.maxItemBytes / MB)));
   const [packetMb, setPacketMb] = useState(String(Math.round(settings.maxPacketBytes / MB)));
@@ -31,22 +42,57 @@ export function SettingsPanel({
   // values) does NOT clobber the user's unsaved edits; only a real change does.
   useEffect(() => {
     setShortcut(settings.globalShortcut);
+    setShowShortcut(settings.showWindowShortcut);
+    setPlacement(settings.windowPlacement);
+    setDisplay(settings.windowDisplay);
+    setAlwaysOnTop(settings.alwaysOnTop);
+    setAllDesktops(settings.showOnAllDesktops);
     setTtl(String(settings.packetTtlHours));
     setItemMb(String(Math.round(settings.maxItemBytes / MB)));
     setPacketMb(String(Math.round(settings.maxPacketBytes / MB)));
     setAutoCleanup(settings.autoCleanup);
   }, [
     settings.globalShortcut,
+    settings.showWindowShortcut,
+    settings.windowPlacement,
+    settings.windowDisplay,
+    settings.alwaysOnTop,
+    settings.showOnAllDesktops,
     settings.packetTtlHours,
     settings.maxItemBytes,
     settings.maxPacketBytes,
     settings.autoCleanup,
   ]);
 
+  // Load the connected displays when the picker is shown (and again each time
+  // it is re-selected, so a monitor plugged in meanwhile appears).
+  useEffect(() => {
+    if (placement !== "display") return;
+    let live = true;
+    onListDisplays()
+      .then((list) => live && setDisplays(list))
+      .catch(() => live && setDisplays([]));
+    return () => {
+      live = false;
+    };
+  }, [placement, onListDisplays]);
+
+  // The saved display, matched like the backend does: exact key, else the
+  // same name (the arrangement changed), else shown as not connected.
+  const savedName = display.includes("@") ? display.slice(0, display.lastIndexOf("@")) : display;
+  const matched =
+    displays.find((d) => d.key === display) ?? displays.find((d) => d.name === savedName);
+  const selectedDisplay = matched?.key ?? display;
+
   const save = () => {
     onSave({
       ...settings,
       globalShortcut: shortcut.trim() || settings.globalShortcut,
+      showWindowShortcut: showShortcut.trim(),
+      windowPlacement: placement,
+      windowDisplay: placement === "display" ? selectedDisplay : display,
+      alwaysOnTop,
+      showOnAllDesktops: allDesktops,
       packetTtlHours: clampInt(ttl, settings.packetTtlHours, 1),
       maxItemBytes: clampInt(itemMb, settings.maxItemBytes / MB, 1) * MB,
       maxPacketBytes: clampInt(packetMb, settings.maxPacketBytes / MB, 1) * MB,
@@ -59,10 +105,10 @@ export function SettingsPanel({
       <h2>Settings</h2>
 
       <label className="field">
-        <span>Global shortcut</span>
+        <span>Capture shortcut (Start / Stop Capture)</span>
         <input
           type="text"
-          aria-label="Global shortcut"
+          aria-label="Capture shortcut"
           value={shortcut}
           disabled={busy}
           onChange={(e) => setShortcut(e.target.value)}
@@ -70,10 +116,91 @@ export function SettingsPanel({
       </label>
       {!shortcutRegistered && (
         <p className="warning" role="alert" data-testid="shortcut-conflict">
-          The global shortcut could not be registered — it may conflict with another app.
+          The capture shortcut could not be registered — it may conflict with another app.
           Choose a different shortcut and save.
         </p>
       )}
+
+      <label className="field">
+        <span>Show / hide window shortcut (empty = off)</span>
+        <input
+          type="text"
+          aria-label="Show window shortcut"
+          value={showShortcut}
+          placeholder="e.g. CommandOrControl+Alt+D"
+          disabled={busy}
+          onChange={(e) => setShowShortcut(e.target.value)}
+        />
+      </label>
+      {!showShortcutRegistered && settings.showWindowShortcut !== "" && (
+        <p className="warning" role="alert" data-testid="show-shortcut-conflict">
+          The show-window shortcut could not be registered — it may conflict with another app or
+          be the same as the capture shortcut. Choose a different shortcut and save.
+        </p>
+      )}
+
+      <label className="field">
+        <span>Open window on</span>
+        <select
+          aria-label="Open window on"
+          value={placement}
+          disabled={busy}
+          onChange={(e) => setPlacement(e.target.value as WindowPlacement)}
+        >
+          <option value="cursor">The screen with the mouse pointer</option>
+          <option value="display">A specific display</option>
+          <option value="last">Where it was last</option>
+        </select>
+      </label>
+
+      {placement === "display" && (
+        <label className="field">
+          <span>Display</span>
+          <select
+            aria-label="Display"
+            value={selectedDisplay}
+            disabled={busy}
+            onChange={(e) => setDisplay(e.target.value)}
+          >
+            {selectedDisplay === "" && <option value="">Choose a display…</option>}
+            {displays.map((d) => (
+              <option key={d.key} value={d.key}>
+                {d.name} ({d.width}×{d.height}){d.primary ? " — main" : ""}
+              </option>
+            ))}
+            {selectedDisplay !== "" && !matched && (
+              <option value={selectedDisplay}>{savedName} (not connected)</option>
+            )}
+          </select>
+        </label>
+      )}
+      {placement === "display" && selectedDisplay !== "" && !matched && (
+        <p className="hint" data-testid="display-missing">
+          That display is not connected; the window opens on the screen with the mouse pointer.
+        </p>
+      )}
+
+      <label className="field field-inline">
+        <input
+          type="checkbox"
+          aria-label="Always on top"
+          checked={alwaysOnTop}
+          disabled={busy}
+          onChange={(e) => setAlwaysOnTop(e.target.checked)}
+        />
+        <span>Always on top (keep the window in front of other apps)</span>
+      </label>
+
+      <label className="field field-inline">
+        <input
+          type="checkbox"
+          aria-label="Show on all desktops"
+          checked={allDesktops}
+          disabled={busy}
+          onChange={(e) => setAllDesktops(e.target.checked)}
+        />
+        <span>Show on all desktops (Spaces)</span>
+      </label>
 
       <label className="field">
         <span>Packet TTL (hours)</span>

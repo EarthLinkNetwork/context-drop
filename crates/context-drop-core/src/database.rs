@@ -14,7 +14,7 @@ use crate::clock::now_ms;
 use crate::error::Result;
 use crate::manifest::ClaimMeta;
 use crate::packet::{ItemKind, Packet, PacketItem, PacketState};
-use crate::settings::Settings;
+use crate::settings::{Settings, WindowPlacement};
 
 /// The latest schema version this build knows how to produce.
 pub const SCHEMA_VERSION: u32 = 2;
@@ -206,6 +206,13 @@ impl Db {
             let (k, v) = row?;
             match k.as_str() {
                 "globalShortcut" => s.global_shortcut = v,
+                "showWindowShortcut" => s.show_window_shortcut = v,
+                "windowPlacement" => {
+                    s.window_placement = WindowPlacement::parse(&v).unwrap_or(s.window_placement)
+                }
+                "windowDisplay" => s.window_display = v,
+                "alwaysOnTop" => s.always_on_top = v == "true",
+                "showOnAllDesktops" => s.show_on_all_desktops = v == "true",
                 "packetTtlHours" => s.packet_ttl_hours = v.parse().unwrap_or(s.packet_ttl_hours),
                 "maxItemBytes" => s.max_item_bytes = v.parse().unwrap_or(s.max_item_bytes),
                 "maxPacketBytes" => s.max_packet_bytes = v.parse().unwrap_or(s.max_packet_bytes),
@@ -222,6 +229,11 @@ impl Db {
         let s = settings.clone().sanitized();
         let pairs = [
             ("globalShortcut", s.global_shortcut.clone()),
+            ("showWindowShortcut", s.show_window_shortcut.clone()),
+            ("windowPlacement", s.window_placement.as_str().to_string()),
+            ("windowDisplay", s.window_display.clone()),
+            ("alwaysOnTop", s.always_on_top.to_string()),
+            ("showOnAllDesktops", s.show_on_all_desktops.to_string()),
             ("packetTtlHours", s.packet_ttl_hours.to_string()),
             ("maxItemBytes", s.max_item_bytes.to_string()),
             ("maxPacketBytes", s.max_packet_bytes.to_string()),
@@ -235,6 +247,45 @@ impl Db {
                 params![k, v],
             )?;
         }
+        Ok(())
+    }
+
+    /// The window's last remembered top-left position (global coordinates,
+    /// see `placement`). Kept apart from `Settings` so a Settings save from the
+    /// UI can never overwrite it with a stale copy.
+    pub fn load_window_position(&self) -> Result<Option<(f64, f64)>> {
+        let get = |k: &str| -> Result<Option<f64>> {
+            let v: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    params![k],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(v.and_then(|v| v.parse::<f64>().ok())
+                .filter(|v| v.is_finite()))
+        };
+        Ok(match (get("windowLastX")?, get("windowLastY")?) {
+            (Some(x), Some(y)) => Some((x, y)),
+            _ => None,
+        })
+    }
+
+    /// Remember the window's top-left position (both keys in one transaction).
+    pub fn save_window_position(&mut self, x: f64, y: f64) -> Result<()> {
+        if !x.is_finite() || !y.is_finite() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        for (k, v) in [("windowLastX", x), ("windowLastY", y)] {
+            tx.execute(
+                "INSERT INTO settings(key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![k, v.to_string()],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 }
@@ -460,5 +511,58 @@ mod tests {
         assert_eq!(loaded.packet_ttl_hours, 48);
         assert_eq!(loaded.global_shortcut, "CommandOrControl+Alt+K");
         assert!(loaded.short_alias_installed);
+    }
+
+    // Tier A: persistence of the window settings / position.
+    #[test]
+    fn window_settings_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        let s = Settings {
+            show_window_shortcut: String::new(),
+            window_placement: WindowPlacement::Display,
+            window_display: "DELL U2720Q@1512,0".into(),
+            always_on_top: true,
+            show_on_all_desktops: true,
+            ..Settings::default()
+        };
+        db.save_settings(&s).unwrap();
+        let loaded = db.load_settings().unwrap();
+        // Empty show-window shortcut (= off) survives a reload instead of
+        // falling back to the default.
+        assert_eq!(loaded.show_window_shortcut, "");
+        assert_eq!(loaded.window_placement, WindowPlacement::Display);
+        assert_eq!(loaded.window_display, "DELL U2720Q@1512,0");
+        assert!(loaded.always_on_top);
+        assert!(loaded.show_on_all_desktops);
+    }
+
+    // Tier A: persistence of the window settings / position.
+    #[test]
+    fn unknown_window_placement_falls_back_to_default() {
+        let db = Db::open_in_memory().unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO settings(key, value) VALUES ('windowPlacement', 'bogus')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            db.load_settings().unwrap().window_placement,
+            WindowPlacement::Cursor
+        );
+    }
+
+    // Tier A: persistence of the window settings / position.
+    #[test]
+    fn window_position_is_independent_of_settings_saves() {
+        let mut db = Db::open_in_memory().unwrap();
+        assert_eq!(db.load_window_position().unwrap(), None);
+        db.save_window_position(1600.5, -24.0).unwrap();
+        // A Settings save (from the UI) must not clobber the remembered position.
+        db.save_settings(&Settings::default()).unwrap();
+        assert_eq!(db.load_window_position().unwrap(), Some((1600.5, -24.0)));
+        // Non-finite input is ignored, not stored.
+        db.save_window_position(f64::NAN, 1.0).unwrap();
+        assert_eq!(db.load_window_position().unwrap(), Some((1600.5, -24.0)));
     }
 }

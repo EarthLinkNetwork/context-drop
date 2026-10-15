@@ -92,6 +92,30 @@ to a free combination. The shortcut is user-configurable. Its behavior:
 Note that a claim from `/context-drop:pull` also auto-ends capture
 (`DRAFT -> CLAIMED`), so you do not always need the shortcut to finalize.
 
+The **show-window shortcut** (default `CommandOrControl+Alt+D`) is separate and
+is fixed the same way. It cannot be the same combination as the capture
+shortcut (the app reports it as not registered). Leave it empty to turn it off.
+
+---
+
+## The window opens on the wrong screen
+
+**Cause.** Context Drop is a menu-bar app with no Dock icon, so macOS's Dock
+"Options → Assign To" menu is not available for it.
+
+**Fix.** In **Settings → Open window on** choose:
+
+- **The screen with the mouse pointer** (default) — the show-window shortcut
+  and a menu-bar icon click open the window on the screen you are using. If the
+  window is already on that screen it stays where you put it.
+- **A specific display** — always that display (if it is unplugged, the
+  pointer's screen is used).
+- **Where it was last** — it stays wherever you left it, also after a restart.
+
+**Show on all desktops** keeps the window on every desktop (Space), like the
+Dock's "Assign To: All Desktops". **Always on top** keeps it in front of other
+apps so you can drop files on it.
+
 ---
 
 ## Plugin not found in Claude Code

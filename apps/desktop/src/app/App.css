@@ -407,7 +407,8 @@ body {
   color: var(--muted);
 }
 .field input[type="text"],
-.field input[type="number"] {
+.field input[type="number"],
+.field select {
   background: #1c1c20;
   border: 1px solid #3a3a42;
   border-radius: 4px;
