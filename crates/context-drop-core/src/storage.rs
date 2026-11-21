@@ -327,31 +327,40 @@ impl Storage {
             return Ok(Storage::at(explicit));
         }
         let base = dirs::data_dir().ok_or(CoreError::NoDataDir)?;
-        Ok(Storage::resolve_in(
-            &base,
-            DATA_DIR_LEAF,
-            LEGACY_DATA_DIR_LEAF,
-        ))
+        Storage::resolve_in(&base, DATA_DIR_LEAF, LEGACY_DATA_DIR_LEAF)
     }
 
     /// [`Storage::resolve`] under an explicit OS data dir and leaf names.
-    pub fn resolve_in(base: &Path, current: &str, legacy: &str) -> Storage {
+    ///
+    /// Using the old macOS location requires the shared migration lock; when it
+    /// cannot be taken (e.g. a sandbox that denies the lock file) this fails
+    /// instead of using the directory unprotected.
+    pub fn resolve_in(base: &Path, current: &str, legacy: &str) -> Result<Storage> {
         let root = select_data_dir_in(base, current, legacy);
         if current == legacy || root != base.join(legacy) {
-            return Storage::at(root);
+            return Ok(Storage::at(root));
         }
         // About to use the old location: take the shared lock first, then decide
         // again, so a move cannot happen between choosing and using it.
-        let lock = migration_lock(base, LockKind::Shared).ok();
+        let lock = migration_lock(base, LockKind::Shared).map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!(
+                    "could not lock {} before using the old Context Drop data directory ({e}); \
+                     start the Context Drop app once so it moves the data, then run the command again",
+                    migration_lock_path(base).display()
+                ),
+            )
+        })?;
         let root = select_data_dir_in(base, current, legacy);
         if root != base.join(legacy) {
-            return Storage::at(root); // moved meanwhile; lock dropped here
+            return Ok(Storage::at(root)); // moved meanwhile; lock dropped here
         }
-        Storage {
+        Ok(Storage {
             root,
             legacy_root: true,
-            _migration_lock: lock.map(std::sync::Arc::new),
-        }
+            _migration_lock: Some(std::sync::Arc::new(lock)),
+        })
     }
 
     /// Construct a `Storage` rooted at an explicit directory.
@@ -900,7 +909,7 @@ mod tests {
         fn a_cli_using_the_old_location_blocks_the_move_until_it_exits() {
             let base = tempfile::tempdir().unwrap();
             let old = seed_old(base.path());
-            let st = Storage::resolve_in(base.path(), NEW, OLD);
+            let st = Storage::resolve_in(base.path(), NEW, OLD).unwrap();
             assert_eq!(st.root(), old.as_path());
             assert!(st.legacy_root);
             // The desktop app starts while the CLI is running: no move.
@@ -928,9 +937,33 @@ mod tests {
             );
             assert!(base.path().join(NEW).join("packets/p1/items").is_dir());
             // After the move a new CLI resolves the new location, without the lock.
-            let st = Storage::resolve_in(base.path(), NEW, OLD);
+            let st = Storage::resolve_in(base.path(), NEW, OLD).unwrap();
             assert_eq!(st.root(), base.path().join(NEW).as_path());
             assert!(!st.legacy_root);
+        }
+
+        #[test]
+        fn the_old_location_is_not_used_when_the_lock_cannot_be_taken() {
+            let base = tempfile::tempdir().unwrap();
+            let old = seed_old(base.path());
+            // A lock file nobody may open (mode 000), as in a denying sandbox.
+            use std::os::unix::fs::PermissionsExt;
+            let lock = migration_lock_path(base.path());
+            fs::write(&lock, b"").unwrap();
+            fs::set_permissions(&lock, fs::Permissions::from_mode(0o000)).unwrap();
+            if fs::File::open(&lock).is_ok() {
+                return; // running as root: permissions are not enforced
+            }
+            assert!(Storage::resolve_in(base.path(), NEW, OLD).is_err());
+            assert!(
+                fs::symlink_metadata(&old).unwrap().is_dir(),
+                "old dir untouched"
+            );
+            // The new location (or a same-leaf OS) never needs the lock.
+            fs::create_dir(base.path().join(NEW)).unwrap();
+            let st = Storage::resolve_in(base.path(), NEW, OLD).unwrap();
+            assert_eq!(st.root(), base.path().join(NEW).as_path());
+            assert!(Storage::resolve_in(base.path(), OLD, OLD).is_ok());
         }
 
         #[test]
