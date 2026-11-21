@@ -25,7 +25,7 @@ directory. The application identifier / data directory leaf is
 dirs::data_dir()/com.contextdrop.app
 ```
 
-This matches Tauri v2's `app_data_dir`. On macOS the leaf is `com.contextdrop.desktop` since v0.1.11 (`~/Library/Application Support/com.contextdrop.desktop`); Windows and Linux keep `com.contextdrop.app`. The location can be overridden with the
+On Windows/Linux this matches Tauri v2's `app_data_dir`. On macOS the leaf is `com.contextdrop.desktop` since v0.1.11 (`~/Library/Application Support/com.contextdrop.desktop`); Windows and Linux keep `com.contextdrop.app`. The location can be overridden with the
 `CONTEXT_DROP_DATA_DIR` environment variable (also exposed on the CLI as the
 global `--data-dir <path>` flag).
 

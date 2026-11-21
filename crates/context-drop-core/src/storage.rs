@@ -151,7 +151,8 @@ pub fn migrate_legacy_data_dir_in(base: &Path, current: &str, legacy: &str) -> D
     if !exists_no_follow(&old) {
         // Already moved but the link is missing (a start that stopped half way,
         // or the link could not be made): put it back on every start.
-        if is_real_dir(&cur) {
+        // `cur` is our moved directory, or a user's link that was moved there.
+        if fs::symlink_metadata(&cur).is_ok_and(|m| m.is_dir() || m.file_type().is_symlink()) {
             let ok = std::os::unix::fs::symlink(current, &old).is_ok();
             return DataDirMigration::LinkRestored { ok };
         }
@@ -704,6 +705,21 @@ mod tests {
             fs::write(gone.join("context-drop.db"), b"theirs").unwrap();
             assert_eq!(fs::read(new.join("context-drop.db")).unwrap(), b"theirs");
             assert_eq!(fs::read(old.join("context-drop.db")).unwrap(), b"theirs");
+        }
+
+        #[test]
+        fn a_missing_link_is_put_back_also_after_moving_a_users_link() {
+            let base = tempfile::tempdir().unwrap();
+            let elsewhere = tempfile::tempdir().unwrap();
+            let old = base.path().join(OLD);
+            std::os::unix::fs::symlink(elsewhere.path(), &old).unwrap();
+            migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            fs::remove_file(&old).unwrap(); // the link could not be left
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::LinkRestored { ok: true }
+            );
+            assert_eq!(fs::read_link(&old).unwrap(), PathBuf::from(NEW));
         }
 
         #[test]

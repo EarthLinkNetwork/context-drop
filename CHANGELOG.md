@@ -24,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `~/.local/bin/context-drop` and anything else using the old path keep
   working; a symlink named `.app` does not cause the problem (measured: 0
   failed registrations vs 92 per 40 s for a real folder). If both exist as
-  real folders, the new one is used and the old one is left untouched.
+  real folders, the new one is used and the old one is left untouched. New
+  installs get the same `com.contextdrop.app` link, so every install looks alike.
   Windows and Linux are unchanged. The bundle identifier stays
   `com.contextdrop.app`, so permissions and updates are unaffected.
 

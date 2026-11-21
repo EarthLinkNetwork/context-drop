@@ -552,8 +552,8 @@ fn symlink_into_local_bin(target: &Path) -> Option<PathBuf> {
             // macOS data dir name that is now a link to the new one).
             if md.file_type().is_symlink() {
                 if let Ok(dst) = fs::read_link(&link) {
-                    let same_file = fs::canonicalize(&link).ok().is_some()
-                        && fs::canonicalize(&link).ok() == fs::canonicalize(target).ok();
+                    let resolved = fs::canonicalize(&link).ok();
+                    let same_file = resolved.is_some() && resolved == fs::canonicalize(target).ok();
                     if dst == target || same_file {
                         return Some(link);
                     }
