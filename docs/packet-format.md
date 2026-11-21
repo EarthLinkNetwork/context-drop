@@ -18,8 +18,8 @@ state machine.
 ## 1. Storage layout
 
 Context Drop stores everything under a single global per-OS-user data
-directory. The application identifier / data directory leaf is
-`com.contextdrop.app`, resolved as:
+directory. On Windows/Linux the application identifier / data directory leaf
+is `com.contextdrop.app`, resolved as:
 
 ```
 dirs::data_dir()/com.contextdrop.app

@@ -150,8 +150,15 @@ pub fn migrate_legacy_data_dir_in(base: &Path, current: &str, legacy: &str) -> D
     }
     if !exists_no_follow(&old) {
         // Already moved but the link is missing (a start that stopped half way,
-        // or the link could not be made): put it back on every start.
-        // `cur` is our moved directory, or a user's link that was moved there.
+        // or the link could not be made), or a fresh install: make sure the
+        // data dir exists and the old name links to it, before the DB is opened.
+        // `cur` may be our moved directory or a user's link that was moved there.
+        if !exists_no_follow(&cur) {
+            use std::os::unix::fs::DirBuilderExt;
+            if fs::DirBuilder::new().mode(0o700).create(&cur).is_err() {
+                return DataDirMigration::NotNeeded; // ensure_layout reports it
+            }
+        }
         if fs::symlink_metadata(&cur).is_ok_and(|m| m.is_dir() || m.file_type().is_symlink()) {
             let ok = std::os::unix::fs::symlink(current, &old).is_ok();
             return DataDirMigration::LinkRestored { ok };
@@ -168,6 +175,18 @@ pub fn migrate_legacy_data_dir_in(base: &Path, current: &str, legacy: &str) -> D
         }
         return DataDirMigration::BothPresent { legacy: old };
     }
+    // Exclusive against every process using the old location: a CLI that
+    // resolved it holds a shared lock until it exits (Storage::resolve), so the
+    // directory is never moved under it. Busy: keep the old one, retry next start.
+    let _lock = match migration_lock(base, LockKind::TryExclusive) {
+        Ok(f) => f,
+        Err(e) => {
+            return DataDirMigration::Failed {
+                legacy: old,
+                error: format!("in use by a running context-drop command ({e})"),
+            }
+        }
+    };
     // Prepare the replacement link first, so the old name is missing for only
     // the instant between the two renames. Relative, so it survives the base
     // directory being reached through another path.
@@ -224,6 +243,52 @@ fn holds_legacy_data(old: &Path, current: &str) -> bool {
         || fs::symlink_metadata(old).is_ok_and(|m| m.file_type().is_symlink())
 }
 
+/// Lock file (next to the data dirs, never inside them) that orders the
+/// desktop app's move against CLIs using the old macOS location.
+fn migration_lock_path(base: &Path) -> PathBuf {
+    base.join(".com.contextdrop.migrate.lock")
+}
+
+enum LockKind {
+    Shared,
+    #[cfg_attr(not(unix), allow(dead_code))] // only the (Unix) move takes it
+    TryExclusive,
+}
+
+/// An advisory `flock` (Unix; released when the file is closed). MSRV 1.77
+/// predates `File::lock`. Other OSes never move the data dir, so no lock.
+#[cfg(unix)]
+fn migration_lock(base: &Path, kind: LockKind) -> std::io::Result<fs::File> {
+    use std::os::unix::io::AsRawFd;
+    let f = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(migration_lock_path(base))?;
+    let op = match kind {
+        LockKind::Shared => libc::LOCK_SH,
+        LockKind::TryExclusive => libc::LOCK_EX | libc::LOCK_NB,
+    };
+    loop {
+        // SAFETY: flock on a file descriptor owned by `f` for the call's duration.
+        if unsafe { libc::flock(f.as_raw_fd(), op) } == 0 {
+            return Ok(f);
+        }
+        let e = std::io::Error::last_os_error();
+        if e.kind() != std::io::ErrorKind::Interrupted {
+            return Err(e);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn migration_lock(_base: &Path, _kind: LockKind) -> std::io::Result<fs::File> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no migration lock on this OS",
+    ))
+}
+
 /// Filesystem paths for a resolved data directory.
 #[derive(Debug, Clone)]
 pub struct Storage {
@@ -231,16 +296,43 @@ pub struct Storage {
     /// Resolved to the pre-0.1.11 macOS location: it must already exist, and
     /// is never created (see [`Storage::check_root`]).
     legacy_root: bool,
+    /// Shared migration lock held while using the old location, so the desktop
+    /// app cannot move it under this process (released when dropped).
+    _migration_lock: Option<std::sync::Arc<fs::File>>,
 }
 
 impl Storage {
     /// Construct a `Storage` rooted at the standard data directory.
     pub fn resolve() -> Result<Storage> {
-        let root = data_dir()?;
-        let legacy_root = env_override().is_none()
-            && DATA_DIR_LEAF != LEGACY_DATA_DIR_LEAF
-            && root.file_name() == Some(std::ffi::OsStr::new(LEGACY_DATA_DIR_LEAF));
-        Ok(Storage { root, legacy_root })
+        if let Some(explicit) = env_override() {
+            return Ok(Storage::at(explicit));
+        }
+        let base = dirs::data_dir().ok_or(CoreError::NoDataDir)?;
+        Ok(Storage::resolve_in(
+            &base,
+            DATA_DIR_LEAF,
+            LEGACY_DATA_DIR_LEAF,
+        ))
+    }
+
+    /// [`Storage::resolve`] under an explicit OS data dir and leaf names.
+    pub fn resolve_in(base: &Path, current: &str, legacy: &str) -> Storage {
+        let root = select_data_dir_in(base, current, legacy);
+        if current == legacy || root != base.join(legacy) {
+            return Storage::at(root);
+        }
+        // About to use the old location: take the shared lock first, then decide
+        // again, so a move cannot happen between choosing and using it.
+        let lock = migration_lock(base, LockKind::Shared).ok();
+        let root = select_data_dir_in(base, current, legacy);
+        if root != base.join(legacy) {
+            return Storage::at(root); // moved meanwhile; lock dropped here
+        }
+        Storage {
+            root,
+            legacy_root: true,
+            _migration_lock: lock.map(std::sync::Arc::new),
+        }
     }
 
     /// Construct a `Storage` rooted at an explicit directory.
@@ -248,6 +340,7 @@ impl Storage {
         Storage {
             root: root.into(),
             legacy_root: false,
+            _migration_lock: None,
         }
     }
 
@@ -532,13 +625,23 @@ mod tests {
         }
 
         #[test]
-        fn fresh_install_needs_nothing_and_creates_nothing() {
+        fn fresh_install_creates_the_data_dir_and_the_old_name_link() {
             let base = tempfile::tempdir().unwrap();
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::LinkRestored { ok: true }
+            );
+            assert!(fs::symlink_metadata(base.path().join(NEW))
+                .unwrap()
+                .is_dir());
+            assert_eq!(
+                fs::read_link(base.path().join(OLD)).unwrap(),
+                PathBuf::from(NEW)
+            );
             assert_eq!(
                 migrate_legacy_data_dir_in(base.path(), NEW, OLD),
                 DataDirMigration::NotNeeded
             );
-            assert_eq!(fs::read_dir(base.path()).unwrap().count(), 0);
         }
 
         #[test]
@@ -742,6 +845,7 @@ mod tests {
             let st = Storage {
                 root: old.clone(),
                 legacy_root: true,
+                _migration_lock: None,
             };
             st.ensure_layout().unwrap();
             // The desktop app moves it before the link is in place.
@@ -757,6 +861,43 @@ mod tests {
             std::os::unix::fs::symlink(NEW, &old).unwrap();
             st.ensure_packet_dirs("p1").unwrap();
             assert!(base.path().join(NEW).join("packets/p1/items").is_dir());
+        }
+
+        #[test]
+        fn a_cli_using_the_old_location_blocks_the_move_until_it_exits() {
+            let base = tempfile::tempdir().unwrap();
+            let old = seed_old(base.path());
+            let st = Storage::resolve_in(base.path(), NEW, OLD);
+            assert_eq!(st.root(), old.as_path());
+            assert!(st.legacy_root);
+            // The desktop app starts while the CLI is running: no move.
+            let out = migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            assert!(matches!(out, DataDirMigration::Failed { .. }), "{out:?}");
+            assert!(
+                fs::symlink_metadata(&old).unwrap().is_dir(),
+                "old dir untouched"
+            );
+            assert!(!base.path().join(NEW).exists());
+            // The CLI keeps working on the old location meanwhile.
+            st.ensure_packet_dirs("p1").unwrap();
+            drop(st);
+            // Next start: the move goes ahead and the CLI's packet came along.
+            let out = migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            assert!(
+                matches!(
+                    out,
+                    DataDirMigration::Moved {
+                        link_left: true,
+                        ..
+                    }
+                ),
+                "{out:?}"
+            );
+            assert!(base.path().join(NEW).join("packets/p1/items").is_dir());
+            // After the move a new CLI resolves the new location, without the lock.
+            let st = Storage::resolve_in(base.path(), NEW, OLD);
+            assert_eq!(st.root(), base.path().join(NEW).as_path());
+            assert!(!st.legacy_root);
         }
 
         #[test]
