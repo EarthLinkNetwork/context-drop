@@ -529,49 +529,14 @@ fn set_executable(_path: &Path) -> Result<(), String> {
 /// Best-effort symlink `~/.local/bin/context-drop` -> `target` (Unix only).
 /// Collision rules: skip if `~/.local/bin` is a non-directory; keep an existing
 /// correct link; never clobber an unrelated file/link.
-/// The directory holding the convenience symlink. `CONTEXT_DROP_LOCAL_BIN`
-/// overrides it (tests point this at a temp dir so the real ~/.local/bin is
-/// never touched).
-#[cfg(unix)]
-fn local_bin_dir() -> Option<PathBuf> {
-    match std::env::var_os("CONTEXT_DROP_LOCAL_BIN") {
-        Some(v) if !v.is_empty() => Some(PathBuf::from(v)),
-        _ => Some(dirs::home_dir()?.join(".local").join("bin")),
-    }
-}
-
-/// Repoint `~/.local/bin/context-drop` from inside `legacy_root` to the same
-/// relative path under `new_root` (used after the data directory moved, so the
-/// link does not dangle). Touches only a symlink that points into
-/// `legacy_root`; anything else is left alone. Returns the link when changed.
-#[cfg(unix)]
-pub fn retarget_local_bin_link(legacy_root: &Path, new_root: &Path) -> Option<PathBuf> {
-    let link = local_bin_dir()?.join("context-drop");
-    if !fs::symlink_metadata(&link).ok()?.file_type().is_symlink() {
-        return None;
-    }
-    let dst = fs::read_link(&link).ok()?;
-    let rel = dst.strip_prefix(legacy_root).ok()?;
-    let new_dst = new_root.join(rel);
-    // Create the new link beside the old one, then rename over it (atomic).
-    let tmp = link.with_file_name(".context-drop.retarget.tmp");
-    let _ = fs::remove_file(&tmp);
-    std::os::unix::fs::symlink(&new_dst, &tmp).ok()?;
-    if fs::rename(&tmp, &link).is_err() {
-        let _ = fs::remove_file(&tmp);
-        return None;
-    }
-    Some(link)
-}
-
-#[cfg(not(unix))]
-pub fn retarget_local_bin_link(_legacy_root: &Path, _new_root: &Path) -> Option<PathBuf> {
-    None
-}
-
 #[cfg(unix)]
 fn symlink_into_local_bin(target: &Path) -> Option<PathBuf> {
-    let local_bin = local_bin_dir()?;
+    // `CONTEXT_DROP_LOCAL_BIN` overrides the symlink directory (tests point this
+    // at a temp dir so the real ~/.local/bin is never touched).
+    let local_bin = match std::env::var_os("CONTEXT_DROP_LOCAL_BIN") {
+        Some(v) if !v.is_empty() => PathBuf::from(v),
+        _ => dirs::home_dir()?.join(".local").join("bin"),
+    };
     match fs::symlink_metadata(&local_bin) {
         Ok(md) if !md.is_dir() => return None, // non-directory: leave it alone
         Ok(_) => {}
@@ -639,51 +604,6 @@ mod tests {
 
     // Serializes tests that mutate the process-global CONTEXT_DROP_LOCAL_BIN.
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    #[cfg(unix)]
-    #[test]
-    fn retarget_moves_only_a_link_into_the_legacy_dir() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let base = tempfile::tempdir().unwrap();
-        let legacy = base.path().join("com.contextdrop.app");
-        let current = base.path().join("com.contextdrop.desktop");
-        let local_bin = tempfile::tempdir().unwrap();
-        std::env::set_var("CONTEXT_DROP_LOCAL_BIN", local_bin.path());
-        let link = local_bin.path().join("context-drop");
-
-        // Points into the legacy dir: repointed to the same file under current.
-        std::os::unix::fs::symlink(legacy.join("bin/context-drop"), &link).unwrap();
-        assert_eq!(
-            retarget_local_bin_link(&legacy, &current),
-            Some(link.clone())
-        );
-        assert_eq!(
-            fs::read_link(&link).unwrap(),
-            current.join("bin/context-drop")
-        );
-        assert!(!local_bin.path().join(".context-drop.retarget.tmp").exists());
-        // Already correct: left as is.
-        assert_eq!(retarget_local_bin_link(&legacy, &current), None);
-        assert_eq!(
-            fs::read_link(&link).unwrap(),
-            current.join("bin/context-drop")
-        );
-
-        // An unrelated link or a regular file is never touched.
-        fs::remove_file(&link).unwrap();
-        std::os::unix::fs::symlink("/usr/local/bin/other", &link).unwrap();
-        assert_eq!(retarget_local_bin_link(&legacy, &current), None);
-        assert_eq!(
-            fs::read_link(&link).unwrap(),
-            PathBuf::from("/usr/local/bin/other")
-        );
-        fs::remove_file(&link).unwrap();
-        fs::write(&link, b"user script").unwrap();
-        assert_eq!(retarget_local_bin_link(&legacy, &current), None);
-        assert_eq!(fs::read(&link).unwrap(), b"user script");
-
-        std::env::remove_var("CONTEXT_DROP_LOCAL_BIN");
-    }
 
     #[test]
     fn install_cli_copies_to_data_bin_and_symlinks_into_override() {

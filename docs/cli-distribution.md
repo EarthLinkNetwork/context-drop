@@ -50,11 +50,10 @@ with the desktop app (spec §19/§38; no Node.js for end users) and be
 
 - **(codex #4 — the important fix)** The canonical installed copy lives at
   `<data-dir>/bin/context-drop[.exe]`, where `<data-dir>` is exactly
-  `context_drop_core::data_dir()` — i.e. `dirs::data_dir()/com.contextdrop.desktop`
-  (`com.contextdrop.app` up to v0.1.10)
+  `context_drop_core::data_dir()` — i.e. `dirs::data_dir()/com.contextdrop.app`
   and honoring `CONTEXT_DROP_DATA_DIR`. This is the SAME directory the core
   resolver already returns on every OS (macOS `~/Library/Application Support/…`,
-  Windows `%APPDATA%\com.contextdrop.desktop`, Linux `~/.local/share/…`). The design
+  Windows `%APPDATA%\com.contextdrop.app`, Linux `~/.local/share/…`). The design
   must NOT invent a separate location (an earlier draft's `%LOCALAPPDATA%\ContextDrop`
   contradicted the fallback and is rejected).
 - A single shared helper resolves this path and is used by the installer, the
@@ -94,9 +93,9 @@ command (`claim`, `consume`, `undo`, `status`):
 2. `context-drop` on `PATH`.
 3. The deterministic canonical fallback (spelled out per-OS in the SKILL.md):
    - macOS: `"$HOME/Library/Application Support/com.contextdrop.desktop/bin/context-drop"`
-   - Linux: `"${XDG_DATA_HOME:-$HOME/.local/share}/com.contextdrop.desktop/bin/context-drop"`
-   - Windows: `"%APPDATA%\com.contextdrop.desktop\bin\context-drop.exe"`
-   - (the pre-0.1.11 `com.contextdrop.app` paths are tried next, until the desktop app moves the folder)
+     (`com.contextdrop.app` before v0.1.11; it stays as a link)
+   - Linux: `"${XDG_DATA_HOME:-$HOME/.local/share}/com.contextdrop.app/bin/context-drop"`
+   - Windows: `"%APPDATA%\com.contextdrop.app\bin\context-drop.exe"`
 
 Because D2 guarantees the canonical copy exists at exactly these paths, step 3
 always works even if PATH was never updated.

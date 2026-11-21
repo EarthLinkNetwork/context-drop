@@ -35,8 +35,6 @@ if (-not $bin) {
         $candidates += (Join-Path $env:CONTEXT_DROP_DATA_DIR 'bin\context-drop')
     }
     if ($env:APPDATA) {
-        $candidates += (Join-Path $env:APPDATA 'com.contextdrop.desktop\bin\context-drop.exe')
-        # pre-0.1.11 location, until the desktop app has moved it:
         $candidates += (Join-Path $env:APPDATA 'com.contextdrop.app\bin\context-drop.exe')
     }
     foreach ($c in $candidates) {

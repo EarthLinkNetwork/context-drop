@@ -1528,8 +1528,8 @@ fn delete_item(app: AppHandle, packet_id: String, item_id: String) -> Result<(),
 
 /// Run the Context Drop desktop app.
 pub fn run() {
-    // Before anything opens the database: move a pre-0.1.11 data dir whose
-    // `.app` name made macOS treat it as an app bundle (see DATA_DIR_LEAF).
+    // Before anything opens the database: on macOS, move a pre-0.1.11 data dir
+    // whose `.app` name made it an app bundle to LaunchServices (DATA_DIR_LEAF).
     match context_drop_core::storage::migrate_legacy_data_dir() {
         DataDirMigration::Failed { legacy, error } => eprintln!(
             "context-drop: could not move {} (still using it): {error}",
@@ -1539,7 +1539,17 @@ pub fn run() {
             "context-drop: old data directory left untouched: {}",
             legacy.display()
         ),
-        DataDirMigration::Moved { .. }
+        DataDirMigration::Moved {
+            from,
+            link_left: false,
+            ..
+        } => eprintln!(
+            "context-drop: moved the data directory, but could not leave a link at {}",
+            from.display()
+        ),
+        DataDirMigration::Moved {
+            link_left: true, ..
+        }
         | DataDirMigration::NotNeeded
         | DataDirMigration::Overridden => {}
     }

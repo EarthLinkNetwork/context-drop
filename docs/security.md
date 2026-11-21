@@ -53,8 +53,8 @@ All packet data stays on the local machine. There is no cloud backend and no rem
 
 Data lives in a single global per-OS-user directory:
 
-- Data-dir leaf: `com.contextdrop.desktop`, resolved as `dirs::data_dir()/com.contextdrop.desktop`
-  (v0.1.10 and earlier used `com.contextdrop.app`, the bundle identifier; macOS treats a folder ending in `.app` as an app, which made `lsd` spin and copy/paste slow. The desktop app moves the old folder on its first v0.1.11 start.)
+- Data-dir leaf: `com.contextdrop.app` on Windows/Linux, resolved as `dirs::data_dir()/<leaf>`.
+  On macOS the leaf is `com.contextdrop.desktop` since v0.1.11 (`~/Library/Application Support/com.contextdrop.desktop`); Windows and Linux keep `com.contextdrop.app`.
 - Override with the `CONTEXT_DROP_DATA_DIR` environment variable
 
 Layout:

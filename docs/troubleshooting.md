@@ -291,12 +291,10 @@ context-drop status
 ## Where is my data?
 
 Context Drop stores everything globally per OS user under the app data
-directory `com.contextdrop.desktop`, resolved as
-`dirs::data_dir()/com.contextdrop.desktop` (macOS:
-`~/Library/Application Support/com.contextdrop.desktop`). Up to v0.1.10 it was
-`com.contextdrop.app`; the app moves it on its first start after the update.
-If both folders exist, the new one is used and the old one is left for you to
-check and delete.
+directory `com.contextdrop.app`, resolved as
+`dirs::data_dir()/com.contextdrop.app` (matching the Tauri v2 `app_data_dir`).
+On macOS the leaf is `com.contextdrop.desktop` since v0.1.11 (`~/Library/Application Support/com.contextdrop.desktop`); Windows and Linux keep `com.contextdrop.app`. The old macOS name remains as a link to the new folder; if both exist as
+real folders, the new one is used and the old one is left for you to check.
 You can override the location with the `CONTEXT_DROP_DATA_DIR` environment
 variable, or point any CLI invocation at it with `--data-dir <path>`.
 

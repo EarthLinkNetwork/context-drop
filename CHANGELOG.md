@@ -17,15 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   second (the database's `-wal`/`-shm` files), Finder and open/save panels kept
   asking `lsd` to register it again. `lsd` sat at 100% CPU and every copy and
   paste waited on it (measured: `pbcopy` 2.6 s → 0.03 s after quitting the app).
-  The data folder is now `com.contextdrop.desktop`
-  (`~/Library/Application Support/com.contextdrop.desktop` on macOS). On its
-  first start, the app moves the old folder there (packets, settings and the
-  CLI included) and repoints `~/.local/bin/context-drop` if it pointed into the
-  old folder. If both folders exist the new one is used and the old one is left
-  untouched. The CLI and the Claude Code plugin look in the new folder first
-  and fall back to the old one until the app has moved it. The bundle
-  identifier stays `com.contextdrop.app`, so permissions and updates are
-  unaffected.
+  On macOS the data folder is now
+  `~/Library/Application Support/com.contextdrop.desktop`. On its first start
+  the app renames the old folder there (packets, settings and the CLI included)
+  and leaves `com.contextdrop.app` as a symlink to it, so older plugins,
+  `~/.local/bin/context-drop` and anything else using the old path keep
+  working; a symlink named `.app` does not cause the problem (measured: 0
+  failed registrations vs 92 per 40 s for a real folder). If both exist as
+  real folders, the new one is used and the old one is left untouched.
+  Windows and Linux are unchanged. The bundle identifier stays
+  `com.contextdrop.app`, so permissions and updates are unaffected.
 
 ## [0.1.10] - 2026-10-15
 
