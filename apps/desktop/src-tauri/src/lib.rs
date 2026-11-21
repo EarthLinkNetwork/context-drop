@@ -1557,7 +1557,12 @@ pub fn run() {
         | DataDirMigration::NotNeeded
         | DataDirMigration::Overridden => {}
     }
-    let storage = Storage::resolve().unwrap_or_else(|_| Storage::at(std::env::temp_dir().join("ContextDrop")));
+    // `resolve` refuses the old macOS location when the migration lock cannot be
+    // taken (that protects CLIs). The desktop app is the only process that
+    // moves the directory, so it may use the old location without the lock.
+    let storage = Storage::resolve()
+        .or_else(|_| context_drop_core::data_dir().map(Storage::at))
+        .unwrap_or_else(|_| Storage::at(std::env::temp_dir().join("ContextDrop")));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
