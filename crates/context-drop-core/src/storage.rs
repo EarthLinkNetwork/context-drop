@@ -144,6 +144,13 @@ pub fn migrate_legacy_data_dir_in(base: &Path, current: &str, legacy: &str) -> D
     let cur = base.join(current);
     let old = base.join(legacy);
     let tmp = base.join(format!(".{legacy}.moving"));
+    // Create the lock file early, so a CLI that cannot create files here can
+    // still open it read-only and lock (see migration_lock).
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(migration_lock_path(base));
     // Leftover from a start that stopped between the two renames.
     if fs::symlink_metadata(&tmp).is_ok_and(|m| m.file_type().is_symlink()) {
         let _ = fs::remove_file(&tmp);
@@ -155,8 +162,12 @@ pub fn migrate_legacy_data_dir_in(base: &Path, current: &str, legacy: &str) -> D
         // `cur` may be our moved directory or a user's link that was moved there.
         if !exists_no_follow(&cur) {
             use std::os::unix::fs::DirBuilderExt;
-            if fs::DirBuilder::new().mode(0o700).create(&cur).is_err() {
-                return DataDirMigration::NotNeeded; // ensure_layout reports it
+            match fs::DirBuilder::new().mode(0o700).create(&cur) {
+                // AlreadyExists: a CLI created it meanwhile; still link it.
+                Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                    return DataDirMigration::NotNeeded; // ensure_layout reports it
+                }
+                _ => {}
             }
         }
         if fs::symlink_metadata(&cur).is_ok_and(|m| m.is_dir() || m.file_type().is_symlink()) {
@@ -260,11 +271,19 @@ enum LockKind {
 #[cfg(unix)]
 fn migration_lock(base: &Path, kind: LockKind) -> std::io::Result<fs::File> {
     use std::os::unix::io::AsRawFd;
-    let f = fs::OpenOptions::new()
+    let path = migration_lock_path(base);
+    // flock works on a read-only handle too: a process that may not create
+    // files next to the data dir (e.g. a sandbox) still takes the lock once
+    // the desktop app has created the file.
+    let f = match fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(migration_lock_path(base))?;
+        .open(&path)
+    {
+        Ok(f) => f,
+        Err(_) => fs::File::open(&path)?,
+    };
     let op = match kind {
         LockKind::Shared => libc::LOCK_SH,
         LockKind::TryExclusive => libc::LOCK_EX | libc::LOCK_NB,
@@ -861,6 +880,20 @@ mod tests {
             std::os::unix::fs::symlink(NEW, &old).unwrap();
             st.ensure_packet_dirs("p1").unwrap();
             assert!(base.path().join(NEW).join("packets/p1/items").is_dir());
+        }
+
+        #[test]
+        fn fresh_install_where_a_cli_made_the_new_dir_first_still_gets_the_link() {
+            let base = tempfile::tempdir().unwrap();
+            fs::create_dir(base.path().join(NEW)).unwrap();
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::LinkRestored { ok: true }
+            );
+            assert_eq!(
+                fs::read_link(base.path().join(OLD)).unwrap(),
+                PathBuf::from(NEW)
+            );
         }
 
         #[test]
