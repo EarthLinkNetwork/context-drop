@@ -1544,12 +1544,16 @@ pub fn run() {
             link_left: false,
             ..
         } => eprintln!(
-            "context-drop: moved the data directory, but could not leave a link at {}",
+            "context-drop: moved the data directory; the link at {} is retried on the next start",
             from.display()
         ),
+        DataDirMigration::LinkRestored { ok: false } => {
+            eprintln!("context-drop: could not put back the old data directory link")
+        }
         DataDirMigration::Moved {
             link_left: true, ..
         }
+        | DataDirMigration::LinkRestored { ok: true }
         | DataDirMigration::NotNeeded
         | DataDirMigration::Overridden => {}
     }

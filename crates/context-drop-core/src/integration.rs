@@ -547,10 +547,14 @@ fn symlink_into_local_bin(target: &Path) -> Option<PathBuf> {
     let link = local_bin.join("context-drop");
     match fs::symlink_metadata(&link) {
         Ok(md) => {
-            // Already present: only accept it if it is our symlink to `target`.
+            // Already present: only accept it if it is our symlink to `target`
+            // (also when it reaches it through another path, e.g. the old
+            // macOS data dir name that is now a link to the new one).
             if md.file_type().is_symlink() {
                 if let Ok(dst) = fs::read_link(&link) {
-                    if dst == target {
+                    let same_file = fs::canonicalize(&link).ok().is_some()
+                        && fs::canonicalize(&link).ok() == fs::canonicalize(target).ok();
+                    if dst == target || same_file {
                         return Some(link);
                     }
                 }
@@ -604,6 +608,32 @@ mod tests {
 
     // Serializes tests that mutate the process-global CONTEXT_DROP_LOCAL_BIN.
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_link_reaching_the_cli_through_the_old_data_dir_name_is_ours() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let base = tempfile::tempdir().unwrap();
+        let new_bin = base.path().join("com.example.desktop/bin");
+        fs::create_dir_all(&new_bin).unwrap();
+        fs::write(new_bin.join("context-drop"), b"cli").unwrap();
+        std::os::unix::fs::symlink("com.example.desktop", base.path().join("com.example.app"))
+            .unwrap();
+        let local_bin = tempfile::tempdir().unwrap();
+        std::env::set_var("CONTEXT_DROP_LOCAL_BIN", local_bin.path());
+        let link = local_bin.path().join("context-drop");
+        let via_old = base.path().join("com.example.app/bin/context-drop");
+        std::os::unix::fs::symlink(&via_old, &link).unwrap();
+
+        let got = symlink_into_local_bin(&new_bin.join("context-drop"));
+        assert_eq!(
+            got,
+            Some(link.clone()),
+            "same file through the old name counts as ours"
+        );
+        assert_eq!(fs::read_link(&link).unwrap(), via_old, "left as is");
+        std::env::remove_var("CONTEXT_DROP_LOCAL_BIN");
+    }
 
     #[test]
     fn install_cli_copies_to_data_bin_and_symlinks_into_override() {
