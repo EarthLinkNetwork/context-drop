@@ -15,11 +15,16 @@
 session_id="$1"
 
 # Step 0 — resolve the binary: $CONTEXT_DROP_BIN → canonical managed copy → PATH.
+# The managed copy lives in com.contextdrop.desktop since v0.1.11; the old
+# com.contextdrop.app location is still tried until the desktop app moves it.
 bin="${CONTEXT_DROP_BIN:-}"
 if [ -z "$bin" ]; then
   for c in \
     "${CONTEXT_DROP_DATA_DIR:+$CONTEXT_DROP_DATA_DIR/bin/context-drop}" \
     "${CONTEXT_DROP_DATA_DIR:+$CONTEXT_DROP_DATA_DIR/bin/context-drop.exe}" \
+    "$HOME/Library/Application Support/com.contextdrop.desktop/bin/context-drop" \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/com.contextdrop.desktop/bin/context-drop" \
+    "${APPDATA:+$APPDATA/com.contextdrop.desktop/bin/context-drop.exe}" \
     "$HOME/Library/Application Support/com.contextdrop.app/bin/context-drop" \
     "${XDG_DATA_HOME:-$HOME/.local/share}/com.contextdrop.app/bin/context-drop" \
     "${APPDATA:+$APPDATA/com.contextdrop.app/bin/context-drop.exe}"; do

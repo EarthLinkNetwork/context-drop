@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-21
+
+### Fixed
+
+- **Copy/paste no longer slows down the whole Mac while Context Drop runs.**
+  The data folder was named `com.contextdrop.app`; macOS treats any folder
+  ending in `.app` as an application, and because the folder changes every
+  second (the database's `-wal`/`-shm` files), Finder and open/save panels kept
+  asking `lsd` to register it again. `lsd` sat at 100% CPU and every copy and
+  paste waited on it (measured: `pbcopy` 2.6 s → 0.03 s after quitting the app).
+  The data folder is now `com.contextdrop.desktop`
+  (`~/Library/Application Support/com.contextdrop.desktop` on macOS). On its
+  first start, the app moves the old folder there (packets, settings and the
+  CLI included) and repoints `~/.local/bin/context-drop` if it pointed into the
+  old folder. If both folders exist the new one is used and the old one is left
+  untouched. The CLI and the Claude Code plugin look in the new folder first
+  and fall back to the old one until the app has moved it. The bundle
+  identifier stays `com.contextdrop.app`, so permissions and updates are
+  unaffected.
+
 ## [0.1.10] - 2026-10-15
 
 ### Added

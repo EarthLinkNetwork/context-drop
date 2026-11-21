@@ -19,10 +19,11 @@ Undo the most recent **eligible** claim for the current Claude Code session and 
 Resolve the `context-drop` binary first (prefer the canonical managed copy over
 PATH): use `$CONTEXT_DROP_BIN` if set, else the canonical path
 (`"$CONTEXT_DROP_DATA_DIR/bin/context-drop"` if set, else macOS
-`"$HOME/Library/Application Support/com.contextdrop.app/bin/context-drop"`,
-Linux `"${XDG_DATA_HOME:-$HOME/.local/share}/com.contextdrop.app/bin/context-drop"`,
-Windows `<APPDATA>\com.contextdrop.app\bin\context-drop.exe`), else `context-drop`
-on `PATH`. Then run:
+`"$HOME/Library/Application Support/com.contextdrop.desktop/bin/context-drop"`,
+Linux `"${XDG_DATA_HOME:-$HOME/.local/share}/com.contextdrop.desktop/bin/context-drop"`,
+Windows `<APPDATA>\com.contextdrop.desktop\bin\context-drop.exe`; before v0.1.11 the
+folder was `com.contextdrop.app` — try it if the new one is missing), else
+`context-drop` on `PATH`. Then run:
 
 ```bash
 context-drop undo --json

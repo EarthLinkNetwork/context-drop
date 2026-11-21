@@ -31,6 +31,7 @@ use context_drop_core::{
     PacketItem, PacketState, Settings, Storage, WindowPlacement, DEFAULT_UNDO_WINDOW_MS,
 };
 use context_drop_core::shortcuts::{self, ShortcutAction, Slot};
+use context_drop_core::storage::DataDirMigration;
 use context_drop_clipboard::{ClipboardProvider, Payload, Watcher};
 
 /// How often the capture loop polls the clipboard while ON. Cheap change tokens
@@ -1527,6 +1528,21 @@ fn delete_item(app: AppHandle, packet_id: String, item_id: String) -> Result<(),
 
 /// Run the Context Drop desktop app.
 pub fn run() {
+    // Before anything opens the database: move a pre-0.1.11 data dir whose
+    // `.app` name made macOS treat it as an app bundle (see DATA_DIR_LEAF).
+    match context_drop_core::storage::migrate_legacy_data_dir() {
+        DataDirMigration::Failed { legacy, error } => eprintln!(
+            "context-drop: could not move {} (still using it): {error}",
+            legacy.display()
+        ),
+        DataDirMigration::BothPresent { legacy } => eprintln!(
+            "context-drop: old data directory left untouched: {}",
+            legacy.display()
+        ),
+        DataDirMigration::Moved { .. }
+        | DataDirMigration::NotNeeded
+        | DataDirMigration::Overridden => {}
+    }
     let storage = Storage::resolve().unwrap_or_else(|_| Storage::at(std::env::temp_dir().join("ContextDrop")));
 
     tauri::Builder::default()

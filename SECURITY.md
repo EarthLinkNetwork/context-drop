@@ -120,8 +120,8 @@ Logs record only: packet id, item type, item size, state transition, and error c
 
 Data is stored **globally per OS user** under the application data directory:
 
-- App identifier / data-dir leaf: `com.contextdrop.app`
-- Resolved as `dirs::data_dir()/com.contextdrop.app` (matching Tauri v2 `app_data_dir`)
+- Data-dir leaf: `com.contextdrop.desktop`, resolved as `dirs::data_dir()/com.contextdrop.desktop`
+  (v0.1.10 and earlier used `com.contextdrop.app`, the bundle identifier; macOS treats a folder ending in `.app` as an app, which made `lsd` spin and copy/paste slow. The desktop app moves the old folder on its first v0.1.11 start.)
 - Override with the environment variable `CONTEXT_DROP_DATA_DIR`
 
 ### Layout

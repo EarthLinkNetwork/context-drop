@@ -44,7 +44,10 @@ pub use manifest::{ClaimMeta, Manifest, ManifestItem, MANIFEST_SCHEMA_VERSION};
 pub use packet::{ItemKind, Packet, PacketItem, PacketState};
 pub use project::{detect as detect_project, ProjectInfo};
 pub use settings::{Limits, Settings, WindowPlacement};
-pub use storage::{data_dir, Storage, APP_IDENTIFIER, DATA_DIR_ENV};
+pub use storage::{
+    data_dir, migrate_legacy_data_dir, DataDirMigration, Storage, APP_IDENTIFIER, DATA_DIR_ENV,
+    DATA_DIR_LEAF, LEGACY_DATA_DIR_LEAF,
+};
 
 /// The recommended undo window: 5 minutes, per spec.
 pub const DEFAULT_UNDO_WINDOW_MS: i64 = 5 * 60 * 1000;
