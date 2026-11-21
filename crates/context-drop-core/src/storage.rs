@@ -208,10 +208,6 @@ fn is_dir_following_links(p: &Path) -> bool {
     fs::metadata(p).map(|m| m.is_dir()).unwrap_or(false)
 }
 
-fn is_real_dir(p: &Path) -> bool {
-    fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_dir())
-}
-
 /// The link this module leaves at the old name (relative, to `current`).
 fn is_our_link(old: &Path, current: &str) -> bool {
     fs::read_link(old).is_ok_and(|t| t == Path::new(current))
