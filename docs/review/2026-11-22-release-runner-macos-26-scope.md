@@ -9,7 +9,8 @@
 - 将来 `macos-26` も廃止された時の自動追従 (その時はまた 1 行直す)。
 - Intel (x86_64) 版の提供 (元から無い)。
 
-## 前提 (実測)
+## 前提
+(実測)
 - v0.1.11 の dry run (run 44922672353) は `The configuration 'macos-14-arm64-us-default' is not supported` で 0 秒で取り消し。
 - CI の `macos-latest` は `Image: macos-26-arm64` (run 44920228180)。
 - この branch の dry run (run 44922788194) は success: build・署名・公証 Accepted・確認まで通過。公開はしていない。
