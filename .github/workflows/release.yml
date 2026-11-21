@@ -58,7 +58,7 @@ concurrency:
 jobs:
   release:
     name: Build & release (macOS)
-    runs-on: macos-26 # Apple Silicon runner (arm64); macos-14 was retired (same image as CI macos-latest)
+    runs-on: macos-26 # Apple Silicon runner (arm64); macos-14 was retired (matched CI macos-latest as of 2026-11)
     steps:
       - uses: actions/checkout@v4
 

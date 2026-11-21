@@ -16,7 +16,8 @@
 - この branch の dry run (run 44922788194) は success: build・署名・公証 Accepted・確認まで通過。公開はしていない。
 
 ## 受け入れる限界
-- 最低対応 macOS は tauri.conf.json の設定で決まり、runner の版では変わらない前提 (build 機の SDK が新しくなることによる差は dry run の成果物で確認する範囲に留める)。
+- 最低対応 macOS は tauri.conf.json で設定しておらず、Tauri の既定で決まる。実測で前回と同じ: dry run の成果物も v0.1.10 も `LSMinimumSystemVersion` 10.13・実行ファイルの `minos` 11.0。
+- build に使う SDK は 14.5 → 26.5 に変わる (実測)。新しい SDK で link すると変わる OS の挙動の差は、dry run の成果物の署名・公証と、release 後のこの Mac での動作確認の範囲で受け入れる。
 
 ## user の裁定
 - 2026-11-22: v0.1.11 を「dry run → 本番 release」で出す。
