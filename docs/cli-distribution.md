@@ -50,7 +50,9 @@ with the desktop app (spec §19/§38; no Node.js for end users) and be
 
 - **(codex #4 — the important fix)** The canonical installed copy lives at
   `<data-dir>/bin/context-drop[.exe]`, where `<data-dir>` is exactly
-  `context_drop_core::data_dir()` — i.e. `dirs::data_dir()/com.contextdrop.app`
+  `context_drop_core::data_dir()` — i.e. `dirs::data_dir()/<DATA_DIR_LEAF>`
+  (macOS `com.contextdrop.desktop` since v0.1.11, with `com.contextdrop.app` kept
+  as a link to it; Windows/Linux `com.contextdrop.app`)
   and honoring `CONTEXT_DROP_DATA_DIR`. This is the SAME directory the core
   resolver already returns on every OS (macOS `~/Library/Application Support/…`,
   Windows `%APPDATA%\com.contextdrop.app`, Linux `~/.local/share/…`). The design
@@ -92,7 +94,8 @@ command (`claim`, `consume`, `undo`, `status`):
 1. `$CONTEXT_DROP_BIN` if set.
 2. `context-drop` on `PATH`.
 3. The deterministic canonical fallback (spelled out per-OS in the SKILL.md):
-   - macOS: `"$HOME/Library/Application Support/com.contextdrop.app/bin/context-drop"`
+   - macOS: `"$HOME/Library/Application Support/com.contextdrop.desktop/bin/context-drop"`
+     (`com.contextdrop.app` before v0.1.11; it stays as a link)
    - Linux: `"${XDG_DATA_HOME:-$HOME/.local/share}/com.contextdrop.app/bin/context-drop"`
    - Windows: `"%APPDATA%\com.contextdrop.app\bin\context-drop.exe"`
 

@@ -25,39 +25,367 @@ use uuid::Uuid;
 use crate::error::{CoreError, Result};
 use crate::hash::sha256_hex;
 
-/// Bundle identifier; also the leaf directory name under the OS data dir.
-/// Chosen to match Tauri v2's `app_data_dir()` (`dirs::data_dir()/<identifier>`).
+/// Bundle identifier of the desktop app (`tauri.conf.json`). On macOS it is no
+/// longer the data directory name — see [`DATA_DIR_LEAF`].
 pub const APP_IDENTIFIER: &str = "com.contextdrop.app";
+
+/// Data directory leaf used up to v0.1.10 on every OS (equal to the bundle
+/// identifier), and still used on Windows and Linux.
+pub const LEGACY_DATA_DIR_LEAF: &str = "com.contextdrop.app";
+
+/// Leaf directory name under the OS data dir.
+///
+/// On macOS this is deliberately *not* the bundle identifier: a directory whose
+/// name ends in `.app` is an application bundle to LaunchServices. The data
+/// dir's top level changes every time SQLite opens the database (`-wal`/`-shm`
+/// files come and go), so Finder and open/save panel services kept asking `lsd`
+/// to re-register an "app" with no executable. That pinned `lsd` at 100% CPU
+/// and made copy/paste slow system-wide (v0.1.10 and earlier). Other OSes have
+/// no such notion and keep the old name, so nothing moves there.
+#[cfg(target_os = "macos")]
+pub const DATA_DIR_LEAF: &str = "com.contextdrop.desktop";
+#[cfg(not(target_os = "macos"))]
+pub const DATA_DIR_LEAF: &str = LEGACY_DATA_DIR_LEAF;
 
 /// Environment variable that overrides the resolved data directory.
 pub const DATA_DIR_ENV: &str = "CONTEXT_DROP_DATA_DIR";
 
-/// Resolve the Context Drop data directory (does not create it).
+/// Resolve the Context Drop data directory (does not create or move it).
+///
+/// `CONTEXT_DROP_DATA_DIR` wins. Otherwise `<os data dir>/<DATA_DIR_LEAF>`,
+/// except while only the pre-0.1.11 directory exists on macOS (the desktop app
+/// has not moved it yet): then that one, so the CLI keeps seeing the user's
+/// packets.
 pub fn data_dir() -> Result<PathBuf> {
-    if let Some(explicit) = std::env::var_os(DATA_DIR_ENV) {
-        if !explicit.is_empty() {
-            return Ok(PathBuf::from(explicit));
-        }
+    if let Some(explicit) = env_override() {
+        return Ok(explicit);
     }
     let base = dirs::data_dir().ok_or(CoreError::NoDataDir)?;
-    Ok(base.join(APP_IDENTIFIER))
+    Ok(select_data_dir_in(
+        &base,
+        DATA_DIR_LEAF,
+        LEGACY_DATA_DIR_LEAF,
+    ))
+}
+
+fn env_override() -> Option<PathBuf> {
+    match std::env::var_os(DATA_DIR_ENV) {
+        Some(v) if !v.is_empty() => Some(PathBuf::from(v)),
+        _ => None,
+    }
+}
+
+/// Pick `base/<current>` unless it is absent and `base/<legacy>` is a
+/// directory (or a link to one). Never changes the filesystem.
+pub fn select_data_dir_in(base: &Path, current: &str, legacy: &str) -> PathBuf {
+    let cur = base.join(current);
+    let old = base.join(legacy);
+    if current != legacy && !exists_no_follow(&cur) && holds_legacy_data(&old, current) {
+        return old;
+    }
+    cur
+}
+
+/// Result of [`migrate_legacy_data_dir`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DataDirMigration {
+    /// `CONTEXT_DROP_DATA_DIR` is set; nothing was looked at.
+    Overridden,
+    /// Nothing to move: not macOS, a fresh install, or already moved.
+    NotNeeded,
+    /// The old directory was renamed to the current location. `link_left` is
+    /// true when the old name was put back as a symlink to the new directory.
+    Moved {
+        from: PathBuf,
+        to: PathBuf,
+        link_left: bool,
+    },
+    /// Both exist as separate directories; the current one is used and the old
+    /// one is left untouched (never merged or deleted automatically).
+    BothPresent { legacy: PathBuf },
+    /// The rename failed; the old directory stays in use and the move is
+    /// retried on the next start.
+    Failed { legacy: PathBuf, error: String },
+    /// Already moved, but the link at the old name was missing and was put
+    /// back (`ok`) or could not be (retried on the next start).
+    LinkRestored { ok: bool },
+}
+
+/// macOS: move the pre-0.1.11 data directory `com.contextdrop.app` to
+/// [`DATA_DIR_LEAF`] and leave `com.contextdrop.app` behind as a symlink to it.
+///
+/// The symlink keeps every old reference working — a v0.1.10 Claude Code
+/// plugin's `claim.sh`, the `~/.local/bin/context-drop` link, a CLI that
+/// resolved the old path just before the move — while a *symlink* named
+/// `.app` does not make `lsd` spin (measured: a churning real `.app` dir 92
+/// failed registrations / 40 s, a `.app` symlink to a churning dir 0).
+///
+/// Called by the desktop app once at startup, before anything opens the
+/// database. The CLI never moves anything. Idempotent; never deletes data.
+pub fn migrate_legacy_data_dir() -> DataDirMigration {
+    if env_override().is_some() {
+        return DataDirMigration::Overridden;
+    }
+    if DATA_DIR_LEAF == LEGACY_DATA_DIR_LEAF {
+        return DataDirMigration::NotNeeded;
+    }
+    let Some(base) = dirs::data_dir() else {
+        return DataDirMigration::NotNeeded;
+    };
+    migrate_legacy_data_dir_in(&base, DATA_DIR_LEAF, LEGACY_DATA_DIR_LEAF)
+}
+
+/// [`migrate_legacy_data_dir`] for explicit leaf names under `base`.
+#[cfg(unix)]
+pub fn migrate_legacy_data_dir_in(base: &Path, current: &str, legacy: &str) -> DataDirMigration {
+    if current == legacy {
+        return DataDirMigration::NotNeeded;
+    }
+    let cur = base.join(current);
+    let old = base.join(legacy);
+    let tmp = base.join(format!(".{legacy}.moving"));
+    // Create the lock file early, so a CLI that cannot create files here can
+    // still open it read-only and lock (see migration_lock).
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(migration_lock_path(base));
+    // Leftover from a start that stopped between the two renames.
+    if fs::symlink_metadata(&tmp).is_ok_and(|m| m.file_type().is_symlink()) {
+        let _ = fs::remove_file(&tmp);
+    }
+    if !exists_no_follow(&old) {
+        // Already moved but the link is missing (a start that stopped half way,
+        // or the link could not be made), or a fresh install: make sure the
+        // data dir exists and the old name links to it, before the DB is opened.
+        // `cur` may be our moved directory or a user's link that was moved there.
+        if !exists_no_follow(&cur) {
+            use std::os::unix::fs::DirBuilderExt;
+            match fs::DirBuilder::new().mode(0o700).create(&cur) {
+                // AlreadyExists: a CLI created it meanwhile; still link it.
+                Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                    return DataDirMigration::NotNeeded; // ensure_layout reports it
+                }
+                _ => {}
+            }
+        }
+        if fs::symlink_metadata(&cur).is_ok_and(|m| m.is_dir() || m.file_type().is_symlink()) {
+            let ok = std::os::unix::fs::symlink(current, &old).is_ok();
+            return DataDirMigration::LinkRestored { ok };
+        }
+        return DataDirMigration::NotNeeded;
+    }
+    if is_our_link(&old, current) || !holds_legacy_data(&old, current) {
+        return DataDirMigration::NotNeeded; // done earlier, or a plain file
+    }
+    if exists_no_follow(&cur) {
+        let same = fs::canonicalize(&old).ok() == fs::canonicalize(&cur).ok();
+        if same {
+            return DataDirMigration::NotNeeded;
+        }
+        return DataDirMigration::BothPresent { legacy: old };
+    }
+    // Exclusive against every process using the old location: a CLI that
+    // resolved it holds a shared lock until it exits (Storage::resolve), so the
+    // directory is never moved under it. Busy: keep the old one, retry next start.
+    let _lock = match migration_lock(base, LockKind::TryExclusive) {
+        Ok(f) => f,
+        Err(e) => {
+            return DataDirMigration::Failed {
+                legacy: old,
+                error: format!("in use by a running context-drop command ({e})"),
+            }
+        }
+    };
+    // Prepare the replacement link first, so the old name is missing for only
+    // the instant between the two renames. Relative, so it survives the base
+    // directory being reached through another path.
+    let link_ready = std::os::unix::fs::symlink(current, &tmp).is_ok();
+    // A user's own symlink at the old name (even one whose target is offline)
+    // moves as a link; the data it points to stays where it is.
+    if let Err(e) = fs::rename(&old, &cur) {
+        let _ = fs::remove_file(&tmp);
+        return DataDirMigration::Failed {
+            legacy: old,
+            error: e.to_string(),
+        };
+    }
+    // rename() of a link onto an existing directory fails, so this never
+    // replaces a directory something recreated in that instant. A missing link
+    // is put back on the next start (LinkRestored).
+    let link_left = link_ready && fs::rename(&tmp, &old).is_ok();
+    if !link_left {
+        let _ = fs::remove_file(&tmp);
+    }
+    DataDirMigration::Moved {
+        from: old,
+        to: cur,
+        link_left,
+    }
+}
+
+#[cfg(not(unix))]
+pub fn migrate_legacy_data_dir_in(_base: &Path, _current: &str, _legacy: &str) -> DataDirMigration {
+    DataDirMigration::NotNeeded
+}
+
+fn exists_no_follow(p: &Path) -> bool {
+    fs::symlink_metadata(p).is_ok()
+}
+
+fn is_dir_following_links(p: &Path) -> bool {
+    fs::metadata(p).map(|m| m.is_dir()).unwrap_or(false)
+}
+
+/// The link this module leaves at the old name (relative, to `current`).
+fn is_our_link(old: &Path, current: &str) -> bool {
+    fs::read_link(old).is_ok_and(|t| t == Path::new(current))
+}
+
+/// The old name holds the user's data: a directory, or a user's own symlink
+/// (followed when its target is reachable; kept even when it is offline, so a
+/// fresh empty directory is never started in its place).
+fn holds_legacy_data(old: &Path, current: &str) -> bool {
+    if is_our_link(old, current) {
+        return false;
+    }
+    is_dir_following_links(old)
+        || fs::symlink_metadata(old).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// Lock file (next to the data dirs, never inside them) that orders the
+/// desktop app's move against CLIs using the old macOS location.
+fn migration_lock_path(base: &Path) -> PathBuf {
+    base.join(".com.contextdrop.migrate.lock")
+}
+
+enum LockKind {
+    Shared,
+    #[cfg_attr(not(unix), allow(dead_code))] // only the (Unix) move takes it
+    TryExclusive,
+}
+
+/// An advisory `flock` (Unix; released when the file is closed). MSRV 1.77
+/// predates `File::lock`. Other OSes never move the data dir, so no lock.
+#[cfg(unix)]
+fn migration_lock(base: &Path, kind: LockKind) -> std::io::Result<fs::File> {
+    use std::os::unix::io::AsRawFd;
+    let path = migration_lock_path(base);
+    // flock works on a read-only handle too: a process that may not create
+    // files next to the data dir (e.g. a sandbox) still takes the lock once
+    // the desktop app has created the file.
+    let f = match fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+    {
+        Ok(f) => f,
+        Err(_) => fs::File::open(&path)?,
+    };
+    let op = match kind {
+        LockKind::Shared => libc::LOCK_SH,
+        LockKind::TryExclusive => libc::LOCK_EX | libc::LOCK_NB,
+    };
+    loop {
+        // SAFETY: flock on a file descriptor owned by `f` for the call's duration.
+        if unsafe { libc::flock(f.as_raw_fd(), op) } == 0 {
+            return Ok(f);
+        }
+        let e = std::io::Error::last_os_error();
+        if e.kind() != std::io::ErrorKind::Interrupted {
+            return Err(e);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn migration_lock(_base: &Path, _kind: LockKind) -> std::io::Result<fs::File> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no migration lock on this OS",
+    ))
 }
 
 /// Filesystem paths for a resolved data directory.
 #[derive(Debug, Clone)]
 pub struct Storage {
     root: PathBuf,
+    /// Resolved to the pre-0.1.11 macOS location: it must already exist, and
+    /// is never created (see [`Storage::check_root`]).
+    legacy_root: bool,
+    /// Shared migration lock held while using the old location, so the desktop
+    /// app cannot move it under this process (released when dropped).
+    _migration_lock: Option<std::sync::Arc<fs::File>>,
 }
 
 impl Storage {
     /// Construct a `Storage` rooted at the standard data directory.
     pub fn resolve() -> Result<Storage> {
-        Ok(Storage { root: data_dir()? })
+        if let Some(explicit) = env_override() {
+            return Ok(Storage::at(explicit));
+        }
+        let base = dirs::data_dir().ok_or(CoreError::NoDataDir)?;
+        Storage::resolve_in(&base, DATA_DIR_LEAF, LEGACY_DATA_DIR_LEAF)
+    }
+
+    /// [`Storage::resolve`] under an explicit OS data dir and leaf names.
+    ///
+    /// Using the old macOS location requires the shared migration lock; when it
+    /// cannot be taken (e.g. a sandbox that denies the lock file) this fails
+    /// instead of using the directory unprotected.
+    pub fn resolve_in(base: &Path, current: &str, legacy: &str) -> Result<Storage> {
+        let root = select_data_dir_in(base, current, legacy);
+        if current == legacy || root != base.join(legacy) {
+            return Ok(Storage::at(root));
+        }
+        // About to use the old location: take the shared lock first, then decide
+        // again, so a move cannot happen between choosing and using it.
+        let lock = migration_lock(base, LockKind::Shared).map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!(
+                    "could not lock {} before using the old Context Drop data directory ({e}); \
+                     start the Context Drop app once so it moves the data, then run the command again",
+                    migration_lock_path(base).display()
+                ),
+            )
+        })?;
+        let root = select_data_dir_in(base, current, legacy);
+        if root != base.join(legacy) {
+            return Ok(Storage::at(root)); // moved meanwhile; lock dropped here
+        }
+        Ok(Storage {
+            root,
+            legacy_root: true,
+            _migration_lock: Some(std::sync::Arc::new(lock)),
+        })
     }
 
     /// Construct a `Storage` rooted at an explicit directory.
     pub fn at(root: impl Into<PathBuf>) -> Storage {
-        Storage { root: root.into() }
+        Storage {
+            root: root.into(),
+            legacy_root: false,
+            _migration_lock: None,
+        }
+    }
+
+    /// When this process picked the old macOS location (the desktop app had
+    /// not moved it yet) and it has since gone, the desktop app has just moved
+    /// it. Fail instead of creating a real `com.contextdrop.app` directory again,
+    /// which would split the data and bring back the `.app` folder; the next
+    /// run resolves the new location.
+    fn check_root(&self) -> Result<()> {
+        if self.legacy_root && !exists_no_follow(&self.root) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "the Context Drop data directory was just moved to com.contextdrop.desktop; run the command again",
+            )
+            .into());
+        }
+        Ok(())
     }
 
     pub fn root(&self) -> &Path {
@@ -99,6 +427,7 @@ impl Storage {
     /// Create the base directory tree with restrictive per-user permissions
     /// where the platform supports it (0700 on Unix).
     pub fn ensure_layout(&self) -> Result<()> {
+        self.check_root()?;
         for dir in [
             self.root.clone(),
             self.packets_dir(),
@@ -112,6 +441,7 @@ impl Storage {
 
     /// Ensure a packet's `items/` directory exists.
     pub fn ensure_packet_dirs(&self, packet_id: &str) -> Result<()> {
+        self.check_root()?;
         create_dir_private(&self.packet_dir(packet_id))?;
         create_dir_private(&self.items_dir(packet_id))?;
         Ok(())
@@ -264,6 +594,390 @@ mod tests {
         let resolved = data_dir().unwrap();
         assert_eq!(resolved, dir.path());
         std::env::remove_var(DATA_DIR_ENV);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_data_dir_leaf_is_not_an_app_bundle_name() {
+        // macOS treats any directory ending in `.app` as an application bundle;
+        // the data dir must never be one (v0.1.10 lsd/copy-paste regression).
+        assert!(!DATA_DIR_LEAF.ends_with(".app"));
+        assert_ne!(DATA_DIR_LEAF, LEGACY_DATA_DIR_LEAF);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn other_os_keeps_the_old_leaf_and_never_moves() {
+        assert_eq!(DATA_DIR_LEAF, LEGACY_DATA_DIR_LEAF);
+    }
+
+    // The tests below use explicit leaf names so they run on every Unix CI.
+    const NEW: &str = "com.example.desktop";
+    const OLD: &str = "com.example.app";
+
+    #[test]
+    fn select_prefers_current_and_falls_back_to_an_existing_legacy_dir() {
+        let base = tempfile::tempdir().unwrap();
+        assert_eq!(
+            select_data_dir_in(base.path(), NEW, OLD),
+            base.path().join(NEW)
+        );
+        fs::create_dir(base.path().join(OLD)).unwrap();
+        assert_eq!(
+            select_data_dir_in(base.path(), NEW, OLD),
+            base.path().join(OLD)
+        );
+        fs::create_dir(base.path().join(NEW)).unwrap();
+        assert_eq!(
+            select_data_dir_in(base.path(), NEW, OLD),
+            base.path().join(NEW)
+        );
+        // Same leaf (Windows/Linux): always that one.
+        assert_eq!(
+            select_data_dir_in(base.path(), OLD, OLD),
+            base.path().join(OLD)
+        );
+    }
+
+    #[cfg(unix)]
+    mod migrate {
+        use super::*;
+
+        fn seed_old(base: &Path) -> PathBuf {
+            let old = base.join(OLD);
+            fs::create_dir_all(old.join("packets/p1")).unwrap();
+            fs::create_dir_all(old.join("bin")).unwrap();
+            fs::write(old.join("context-drop.db"), b"db").unwrap();
+            fs::write(old.join("bin/context-drop"), b"cli").unwrap();
+            old
+        }
+
+        #[test]
+        fn fresh_install_creates_the_data_dir_and_the_old_name_link() {
+            let base = tempfile::tempdir().unwrap();
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::LinkRestored { ok: true }
+            );
+            assert!(fs::symlink_metadata(base.path().join(NEW))
+                .unwrap()
+                .is_dir());
+            assert_eq!(
+                fs::read_link(base.path().join(OLD)).unwrap(),
+                PathBuf::from(NEW)
+            );
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::NotNeeded
+            );
+        }
+
+        #[test]
+        fn moves_the_old_dir_and_leaves_a_link_that_old_paths_still_reach() {
+            let base = tempfile::tempdir().unwrap();
+            let old = seed_old(base.path());
+            let new = base.path().join(NEW);
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::Moved {
+                    from: old.clone(),
+                    to: new.clone(),
+                    link_left: true
+                }
+            );
+            assert!(
+                fs::symlink_metadata(&new).unwrap().is_dir(),
+                "data is a real dir at the new name"
+            );
+            assert!(
+                fs::symlink_metadata(&old).unwrap().file_type().is_symlink(),
+                "old name is a link"
+            );
+            assert_eq!(
+                fs::read_link(&old).unwrap(),
+                PathBuf::from(NEW),
+                "relative link"
+            );
+            // Old paths (v0.1.10 plugin, ~/.local/bin link) still work.
+            assert_eq!(fs::read(old.join("bin/context-drop")).unwrap(), b"cli");
+            // Writes by the old path land in the new dir (no split).
+            fs::write(old.join("packets/p1/x"), b"via-old").unwrap();
+            assert_eq!(fs::read(new.join("packets/p1/x")).unwrap(), b"via-old");
+            assert_eq!(select_data_dir_in(base.path(), NEW, OLD), new);
+            assert!(!base.path().join(format!(".{OLD}.moving")).exists());
+            // Idempotent on the next start.
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::NotNeeded
+            );
+        }
+
+        #[test]
+        fn both_real_dirs_keep_current_and_never_touch_the_old_one() {
+            let base = tempfile::tempdir().unwrap();
+            let old = seed_old(base.path());
+            let new = base.path().join(NEW);
+            fs::create_dir(&new).unwrap();
+            fs::write(new.join("context-drop.db"), b"new").unwrap();
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::BothPresent {
+                    legacy: old.clone()
+                }
+            );
+            assert_eq!(fs::read(old.join("context-drop.db")).unwrap(), b"db");
+            assert_eq!(fs::read(new.join("context-drop.db")).unwrap(), b"new");
+            assert_eq!(select_data_dir_in(base.path(), NEW, OLD), new);
+        }
+
+        #[test]
+        fn a_users_own_link_at_the_old_name_keeps_pointing_at_their_data() {
+            let base = tempfile::tempdir().unwrap();
+            let elsewhere = tempfile::tempdir().unwrap();
+            fs::write(elsewhere.path().join("context-drop.db"), b"relocated").unwrap();
+            let old = base.path().join(OLD);
+            std::os::unix::fs::symlink(elsewhere.path(), &old).unwrap();
+            // Before the move the CLI follows the link, as v0.1.10 did.
+            assert_eq!(select_data_dir_in(base.path(), NEW, OLD), old);
+            let out = migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            assert!(
+                matches!(
+                    out,
+                    DataDirMigration::Moved {
+                        link_left: true,
+                        ..
+                    }
+                ),
+                "{out:?}"
+            );
+            let new = base.path().join(NEW);
+            assert_eq!(fs::read(new.join("context-drop.db")).unwrap(), b"relocated");
+            assert_eq!(fs::read(old.join("context-drop.db")).unwrap(), b"relocated");
+            assert_eq!(
+                fs::read(elsewhere.path().join("context-drop.db")).unwrap(),
+                b"relocated"
+            );
+        }
+
+        #[test]
+        fn a_plain_file_at_the_old_name_is_left_alone() {
+            let base = tempfile::tempdir().unwrap();
+            let old = base.path().join(OLD);
+            fs::write(&old, b"x").unwrap();
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::NotNeeded
+            );
+            assert_eq!(fs::read(&old).unwrap(), b"x");
+            assert!(!base.path().join(NEW).exists());
+            assert_eq!(
+                select_data_dir_in(base.path(), NEW, OLD),
+                base.path().join(NEW)
+            );
+        }
+
+        #[test]
+        fn a_missing_link_after_a_half_finished_move_is_put_back() {
+            let base = tempfile::tempdir().unwrap();
+            let old = seed_old(base.path());
+            migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            // Simulate a start that stopped between the renames.
+            fs::remove_file(&old).unwrap();
+            let tmp = base.path().join(format!(".{OLD}.moving"));
+            std::os::unix::fs::symlink(NEW, &tmp).unwrap();
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::LinkRestored { ok: true }
+            );
+            assert_eq!(fs::read_link(&old).unwrap(), PathBuf::from(NEW));
+            assert_eq!(fs::read(old.join("bin/context-drop")).unwrap(), b"cli");
+            assert!(
+                fs::symlink_metadata(&tmp).is_err(),
+                "stale tmp link removed"
+            );
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::NotNeeded
+            );
+        }
+
+        #[test]
+        fn a_users_link_whose_target_is_offline_is_kept_not_replaced_by_an_empty_dir() {
+            let base = tempfile::tempdir().unwrap();
+            let gone = base.path().join("unmounted-volume/cd");
+            let old = base.path().join(OLD);
+            std::os::unix::fs::symlink(&gone, &old).unwrap();
+            // Selection keeps the user's link (opening it fails loudly, as in v0.1.10).
+            assert_eq!(select_data_dir_in(base.path(), NEW, OLD), old);
+            let out = migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            assert!(
+                matches!(
+                    out,
+                    DataDirMigration::Moved {
+                        link_left: true,
+                        ..
+                    }
+                ),
+                "{out:?}"
+            );
+            let new = base.path().join(NEW);
+            assert_eq!(
+                fs::read_link(&new).unwrap(),
+                gone,
+                "the user's link moved as is"
+            );
+            assert_eq!(select_data_dir_in(base.path(), NEW, OLD), new);
+            // When the volume comes back, both names reach the user's data.
+            fs::create_dir_all(&gone).unwrap();
+            fs::write(gone.join("context-drop.db"), b"theirs").unwrap();
+            assert_eq!(fs::read(new.join("context-drop.db")).unwrap(), b"theirs");
+            assert_eq!(fs::read(old.join("context-drop.db")).unwrap(), b"theirs");
+        }
+
+        #[test]
+        fn a_missing_link_is_put_back_also_after_moving_a_users_link() {
+            let base = tempfile::tempdir().unwrap();
+            let elsewhere = tempfile::tempdir().unwrap();
+            let old = base.path().join(OLD);
+            std::os::unix::fs::symlink(elsewhere.path(), &old).unwrap();
+            migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            fs::remove_file(&old).unwrap(); // the link could not be left
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::LinkRestored { ok: true }
+            );
+            assert_eq!(fs::read_link(&old).unwrap(), PathBuf::from(NEW));
+        }
+
+        #[test]
+        fn our_link_with_the_data_deleted_is_left_alone() {
+            let base = tempfile::tempdir().unwrap();
+            let old = base.path().join(OLD);
+            std::os::unix::fs::symlink(NEW, &old).unwrap();
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::NotNeeded
+            );
+            assert_eq!(
+                select_data_dir_in(base.path(), NEW, OLD),
+                base.path().join(NEW)
+            );
+            assert!(!base.path().join(NEW).exists(), "no self-referencing move");
+        }
+
+        #[test]
+        fn a_storage_on_the_old_location_never_recreates_it_after_the_move() {
+            let base = tempfile::tempdir().unwrap();
+            let old = base.path().join(OLD);
+            fs::create_dir(&old).unwrap();
+            let st = Storage {
+                root: old.clone(),
+                legacy_root: true,
+                _migration_lock: None,
+            };
+            st.ensure_layout().unwrap();
+            // The desktop app moves it before the link is in place.
+            fs::rename(&old, base.path().join(NEW)).unwrap();
+            assert!(st.ensure_layout().is_err());
+            assert!(st.ensure_packet_dirs("p1").is_err());
+            assert!(st.write_item_atomic("p1", 1, "txt", b"x").is_err());
+            assert!(
+                fs::symlink_metadata(&old).is_err(),
+                "no real old dir recreated"
+            );
+            // Once the link is back, the same storage works through it.
+            std::os::unix::fs::symlink(NEW, &old).unwrap();
+            st.ensure_packet_dirs("p1").unwrap();
+            assert!(base.path().join(NEW).join("packets/p1/items").is_dir());
+        }
+
+        #[test]
+        fn fresh_install_where_a_cli_made_the_new_dir_first_still_gets_the_link() {
+            let base = tempfile::tempdir().unwrap();
+            fs::create_dir(base.path().join(NEW)).unwrap();
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), NEW, OLD),
+                DataDirMigration::LinkRestored { ok: true }
+            );
+            assert_eq!(
+                fs::read_link(base.path().join(OLD)).unwrap(),
+                PathBuf::from(NEW)
+            );
+        }
+
+        #[test]
+        fn a_cli_using_the_old_location_blocks_the_move_until_it_exits() {
+            let base = tempfile::tempdir().unwrap();
+            let old = seed_old(base.path());
+            let st = Storage::resolve_in(base.path(), NEW, OLD).unwrap();
+            assert_eq!(st.root(), old.as_path());
+            assert!(st.legacy_root);
+            // The desktop app starts while the CLI is running: no move.
+            let out = migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            assert!(matches!(out, DataDirMigration::Failed { .. }), "{out:?}");
+            assert!(
+                fs::symlink_metadata(&old).unwrap().is_dir(),
+                "old dir untouched"
+            );
+            assert!(!base.path().join(NEW).exists());
+            // The CLI keeps working on the old location meanwhile.
+            st.ensure_packet_dirs("p1").unwrap();
+            drop(st);
+            // Next start: the move goes ahead and the CLI's packet came along.
+            let out = migrate_legacy_data_dir_in(base.path(), NEW, OLD);
+            assert!(
+                matches!(
+                    out,
+                    DataDirMigration::Moved {
+                        link_left: true,
+                        ..
+                    }
+                ),
+                "{out:?}"
+            );
+            assert!(base.path().join(NEW).join("packets/p1/items").is_dir());
+            // After the move a new CLI resolves the new location, without the lock.
+            let st = Storage::resolve_in(base.path(), NEW, OLD).unwrap();
+            assert_eq!(st.root(), base.path().join(NEW).as_path());
+            assert!(!st.legacy_root);
+        }
+
+        #[test]
+        fn the_old_location_is_not_used_when_the_lock_cannot_be_taken() {
+            let base = tempfile::tempdir().unwrap();
+            let old = seed_old(base.path());
+            // A lock file nobody may open (mode 000), as in a denying sandbox.
+            use std::os::unix::fs::PermissionsExt;
+            let lock = migration_lock_path(base.path());
+            fs::write(&lock, b"").unwrap();
+            fs::set_permissions(&lock, fs::Permissions::from_mode(0o000)).unwrap();
+            if fs::File::open(&lock).is_ok() {
+                return; // running as root: permissions are not enforced
+            }
+            assert!(Storage::resolve_in(base.path(), NEW, OLD).is_err());
+            assert!(
+                fs::symlink_metadata(&old).unwrap().is_dir(),
+                "old dir untouched"
+            );
+            // The new location (or a same-leaf OS) never needs the lock.
+            fs::create_dir(base.path().join(NEW)).unwrap();
+            let st = Storage::resolve_in(base.path(), NEW, OLD).unwrap();
+            assert_eq!(st.root(), base.path().join(NEW).as_path());
+            assert!(Storage::resolve_in(base.path(), OLD, OLD).is_ok());
+        }
+
+        #[test]
+        fn same_leaf_never_moves() {
+            let base = tempfile::tempdir().unwrap();
+            seed_old(base.path());
+            assert_eq!(
+                migrate_legacy_data_dir_in(base.path(), OLD, OLD),
+                DataDirMigration::NotNeeded
+            );
+            assert!(fs::symlink_metadata(base.path().join(OLD))
+                .unwrap()
+                .is_dir());
+        }
     }
 
     #[test]

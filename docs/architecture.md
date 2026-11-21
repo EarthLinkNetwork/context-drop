@@ -258,7 +258,7 @@ terminal packets past their TTL (default 24h, configurable).
 
 Storage is **global per OS user**. The data directory leaf is
 `com.contextdrop.app`, resolved as `dirs::data_dir()/com.contextdrop.app`
-(matching Tauri v2's `app_data_dir`). It can be overridden with the
+(matching Tauri v2's `app_data_dir` on Windows/Linux). On macOS the leaf is `com.contextdrop.desktop` since v0.1.11 (`~/Library/Application Support/com.contextdrop.desktop`); Windows and Linux keep `com.contextdrop.app`. macOS treats a folder whose name ends in `.app` as an application bundle, and the data folder changes every second (SQLite `-wal`/`-shm`), so with the old name `lsd` kept re-registering it and copy/paste slowed down system-wide. On its first v0.1.11 start the desktop app renames the old folder and leaves `com.contextdrop.app` as a symlink to the new one, so older plugins and links keep working (a `.app`-named symlink does not trigger the problem). It can be overridden with the
 `CONTEXT_DROP_DATA_DIR` environment variable.
 
 ```
