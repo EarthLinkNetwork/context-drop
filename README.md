@@ -45,7 +45,7 @@ The main agent must not read packet text, logs, images, JSON, or raw files. It w
 
 **1. Download the desktop app** from the [**Releases**](https://github.com/EarthLinkNetwork/context-drop/releases) page. The macOS build is signed with a Developer ID certificate and **notarized by Apple**, so it opens without a Gatekeeper warning. Open the DMG, move **Context Drop.app** to `/Applications`, and open it (it lives in the menu bar). The desktop app ships the `context-drop` companion CLI — end users need no Node.js, npm, or Rust.
 
-From v0.1.10 on, the app **updates itself**: when a new release is out, the window shows **Install & Restart** (and the menu-bar menu shows **Update to vX.Y.Z…**). Settings → Advanced → Updates has **Check for Updates** and the automatic-check setting. Versions before v0.1.10 have no updater — install v0.1.10 from the Releases page once by hand.
+From v0.1.10 on, the app **updates itself**: when a new release is out, the window shows **Install & Restart** (and the menu-bar menu shows **Update to vX.Y.Z…**). **Check for Updates** is at the top of Settings and in the menu-bar menu (both show the result, also when you already have the latest version); the automatic-check setting is in Settings → Advanced → Updates. Versions before v0.1.10 have no updater — install v0.1.10 from the Releases page once by hand.
 
 > Current releases are **macOS (Apple Silicon / arm64)**. Intel-Mac (universal) and Windows builds are planned; building from source works on all three (see CONTRIBUTING).
 

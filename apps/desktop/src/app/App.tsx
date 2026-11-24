@@ -106,10 +106,16 @@ export function App() {
         </p>
       )}
 
+      {/* A check asked for from the menu-bar menu shows its result here; in
+          Settings the Updates panel at the top already shows it. */}
       <UpdateBanner
+        appVersion={snap.appVersion}
         update={snap.update}
         capturing={snap.capturing}
+        showResult={snap.update.announce && tab !== "settings"}
         onInstall={() => void state.installUpdate()}
+        onCheck={() => void state.checkForUpdates()}
+        onDismiss={() => void state.dismissUpdateNotice()}
       />
 
       {brokenShortcuts.length > 0 && (

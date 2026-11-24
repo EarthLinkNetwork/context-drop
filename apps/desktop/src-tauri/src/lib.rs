@@ -1685,6 +1685,7 @@ pub fn run() {
             end_recording,
             updater::check_for_updates,
             updater::install_update,
+            updater::dismiss_update_notice,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

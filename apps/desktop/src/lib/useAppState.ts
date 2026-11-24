@@ -30,6 +30,8 @@ export interface AppStateHook {
   checkForUpdates: () => Promise<void>;
   /** Install the update found (the app restarts). Resolves the error, if any. */
   installUpdate: () => Promise<string | null>;
+  /** Stop showing the result of the check asked for from the menu-bar menu. */
+  dismissUpdateNotice: () => Promise<void>;
 }
 
 /**
@@ -147,6 +149,14 @@ export function useAppState(pollMs = 1500): AppStateHook {
         await api.checkForUpdates();
       } catch {
         // Shown from the snapshot's update.error.
+      }
+      await refresh();
+    },
+    dismissUpdateNotice: async () => {
+      try {
+        await api.dismissUpdateNotice();
+      } catch {
+        // Nothing to show: the notice simply stays until the next try.
       }
       await refresh();
     },

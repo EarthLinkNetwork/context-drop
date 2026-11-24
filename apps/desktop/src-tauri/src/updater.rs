@@ -64,6 +64,10 @@ pub struct UpdateStatus {
     pub blocked_reason: Option<String>,
     /// Updates exist for this platform at all (macOS only).
     pub supported: bool,
+    /// The user asked from the menu-bar menu: the window shows what the check
+    /// found ("checking", "you have the latest version", the failure) until
+    /// the user dismisses it or an automatic check starts.
+    pub announce: bool,
 }
 
 impl Default for UpdateStatus {
@@ -80,6 +84,7 @@ impl Default for UpdateStatus {
             checked_at: None,
             blocked_reason: location_problem(),
             supported: cfg!(target_os = "macos"),
+            announce: false,
         }
     }
 }
@@ -179,6 +184,12 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
             s.state = "checking";
         }
         s.checking = true;
+        // What an automatic check finds is not announced: a result the user
+        // asked for earlier and left on screen goes, rather than be replaced
+        // by one they did not ask for.
+        if !manual {
+            s.announce = false;
+        }
         // Starting a check replaces only the previous check's error: an
         // install failure stays on screen while its update is still offered.
         if s.error_during == Some("check") {
@@ -330,9 +341,11 @@ pub fn spawn_automatic_checks(
 }
 
 /// The tray's update item: open the window, and check first unless an update
-/// is already known (the window then shows it).
+/// is already known (the window then shows it). The window shows the outcome
+/// whatever it is (`announce`), so the item never looks like it did nothing.
 pub fn on_tray_item(app: &AppHandle, show_window: impl Fn(&AppHandle)) {
     show_window(app);
+    update_status(app, |s| s.announce = true);
     let known = app.state::<Updates>().pending.lock().unwrap().is_some();
     if !known {
         let app = app.clone();
@@ -350,4 +363,10 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateStatus, String> {
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     install(&app).await
+}
+
+/// The user dismissed the announced result of a check (see `announce`).
+#[tauri::command]
+pub fn dismiss_update_notice(app: AppHandle) {
+    update_status(&app, |s| s.announce = false);
 }

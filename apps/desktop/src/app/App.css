@@ -87,6 +87,15 @@ body {
 .update-banner .warning {
   margin: 6px 0 0;
 }
+.update-banner.is-failed {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--danger);
+}
+.update-banner-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
 
 .settings-section-title {
   margin: 0 0 6px;

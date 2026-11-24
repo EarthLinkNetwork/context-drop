@@ -1,4 +1,5 @@
 import type { UpdateStatus } from "../../lib/api";
+import { checkedAt } from "./checkedAt";
 
 interface Props {
   appVersion: string;
@@ -7,7 +8,7 @@ interface Props {
   onInstall: () => void;
 }
 
-/** Settings → Advanced → Updates: the version, Check for Updates, the result. */
+/** The top of Settings: the version, Check for Updates, the result. */
 export function UpdatesPanel({ appVersion, update, onCheck, onInstall }: Props) {
   if (!update.supported) {
     return <p className="hint">In-app updates are available on macOS only.</p>;
@@ -62,10 +63,4 @@ function statusText(update: UpdateStatus): string {
     case "idle":
       return update.checkedAt ? `Last checked${checkedAt(update.checkedAt)}.` : "Not checked yet.";
   }
-}
-
-function checkedAt(ms: number | null): string {
-  if (!ms) return "";
-  const time = new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return ` (checked at ${time})`;
 }

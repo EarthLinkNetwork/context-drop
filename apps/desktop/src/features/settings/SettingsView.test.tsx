@@ -286,11 +286,20 @@ describe("Shortcuts tab — recording survives polling", () => {
   });
 });
 
-describe("Advanced tab: updates", () => {
+describe("updates", () => {
+  // Tier A: the version and Check for Updates are on screen on every tab of
+  // Settings (they used to be found only under Advanced).
+  it("shows the updates panel on every tab", () => {
+    for (const tab of ["shortcuts", "window", "claude", "advanced"] as const) {
+      const { view } = setup({ tab });
+      expect(screen.getByText("Updates panel")).toBeVisible();
+      view.unmount();
+    }
+  });
+
   // Tier A: the automatic update check toggle saves autoCheckUpdates at once.
   it("turns automatic update checks off", async () => {
     const p = setup({ tab: "advanced" });
-    expect(screen.getByText("Updates panel")).toBeInTheDocument();
     const box = screen.getByLabelText("Check for updates automatically");
     expect(box).toBeChecked();
     fireEvent.click(box);
