@@ -286,20 +286,35 @@ describe("Shortcuts tab — recording survives polling", () => {
   });
 });
 
-describe("Advanced tab: updates", () => {
+describe("updates", () => {
+  // Tier A: the version and Check for Updates are on screen on every tab of
+  // Settings (they used to be found only under Advanced).
+  it("shows the updates panel on every tab", () => {
+    for (const tab of ["shortcuts", "window", "claude", "advanced"] as const) {
+      const { view } = setup({ tab });
+      expect(screen.getByText("Updates panel")).toBeVisible();
+      view.unmount();
+    }
+  });
+
   // Tier A: the automatic update check toggle saves autoCheckUpdates at once.
   it("turns automatic update checks off", async () => {
     const p = setup({ tab: "advanced" });
-    expect(screen.getByText("Updates panel")).toBeInTheDocument();
     const box = screen.getByLabelText("Check for updates automatically");
     expect(box).toBeChecked();
     fireEvent.click(box);
     await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith({ autoCheckUpdates: false }));
   });
 
-  // Tier A: where there are no updates (not macOS), there is no setting for them.
+  // Tier A: where there are no updates (not macOS), there is no setting for
+  // them and no panel at the top; Advanced says why.
   it("hides the automatic check where updates are not available", () => {
+    const { view } = setup({ tab: "shortcuts", updatesSupported: false });
+    expect(screen.queryByText("Updates panel")).toBeNull();
+    view.unmount();
     setup({ tab: "advanced", updatesSupported: false });
+    expect(screen.queryByText("Updates panel")).toBeNull();
+    expect(screen.getByText(/macOS only/)).toBeVisible();
     expect(screen.queryByLabelText("Check for updates automatically")).toBeNull();
   });
 });

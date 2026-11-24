@@ -90,6 +90,13 @@ export interface UpdateStatus {
   blockedReason: string | null;
   /** Updates exist for this platform (macOS only). */
   supported: boolean;
+  /**
+   * The user asked from the menu-bar menu: the window shows what the check
+   * found until it is dismissed or an automatic check starts.
+   */
+  announce: boolean;
+  /** How many times the user has asked from the menu-bar menu. */
+  asked: number;
 }
 
 export interface AppSnapshot {
@@ -168,6 +175,8 @@ export const api = {
   checkForUpdates: () => invoke<UpdateStatus>("check_for_updates"),
   /** Download, verify and install the update found, then restart the app. */
   installUpdate: () => invoke<void>("install_update"),
+  /** Stop showing the result of the check asked for from the menu-bar menu. */
+  dismissUpdateNotice: () => invoke<void>("dismiss_update_notice"),
 };
 
 export type Api = typeof api;

@@ -45,7 +45,10 @@ interface Props {
   onOpenDataFolder: () => void;
   /** The Claude Code setup panel (rendered in its own tab). */
   claudeSetup: ReactNode;
-  /** Settings → Advanced → Updates: version, Check for Updates, the result. */
+  /**
+   * The top of Settings (every tab): version, Check for Updates, the result.
+   * Not shown where there are no updates (`updatesSupported`).
+   */
   updates: ReactNode;
   /** In-app updates exist on this platform (else no auto-check setting). */
   updatesSupported: boolean;
@@ -66,6 +69,7 @@ export function SettingsView(props: Props) {
   const settings = { ...props.settings, ...pending };
   return (
     <section className="panel settings-panel">
+      {props.updatesSupported && props.updates}
       <nav className="subtabs" role="tablist" aria-label="Settings sections">
         {TABS.map((t) => (
           <button
@@ -108,7 +112,6 @@ export function SettingsView(props: Props) {
           save={save}
           savedKey={savedKey}
           onOpenDataFolder={props.onOpenDataFolder}
-          updates={props.updates}
           updatesSupported={props.updatesSupported}
         />
       </div>
@@ -307,20 +310,18 @@ function AdvancedTab({
   save,
   savedKey,
   onOpenDataFolder,
-  updates,
   updatesSupported,
 }: {
   settings: Settings;
   save: Save;
   savedKey: string | null;
   onOpenDataFolder: () => void;
-  updates: ReactNode;
   updatesSupported: boolean;
 }) {
   return (
     <div>
       <h3 className="settings-section-title">Updates</h3>
-      {updatesSupported && (
+      {updatesSupported ? (
         <Toggle
           label="Check for updates automatically"
           text="Check for updates automatically (at launch and about once a day)"
@@ -328,8 +329,9 @@ function AdvancedTab({
           saved={savedKey === "autoCheckUpdates"}
           onChange={(v) => save({ autoCheckUpdates: v }, "autoCheckUpdates")}
         />
+      ) : (
+        <p className="hint">In-app updates are available on macOS only.</p>
       )}
-      {updates}
 
       <h3 className="settings-section-title">Packets</h3>
       <NumberSetting

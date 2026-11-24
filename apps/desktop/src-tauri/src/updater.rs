@@ -64,6 +64,13 @@ pub struct UpdateStatus {
     pub blocked_reason: Option<String>,
     /// Updates exist for this platform at all (macOS only).
     pub supported: bool,
+    /// The user asked from the menu-bar menu: the window shows what the check
+    /// found ("checking", "you have the latest version", the failure) until
+    /// the user dismisses it or an automatic check starts.
+    pub announce: bool,
+    /// How many times the user has asked from the menu-bar menu; each time the
+    /// window scrolls to its top, where the result is.
+    pub asked: u32,
 }
 
 impl Default for UpdateStatus {
@@ -80,6 +87,8 @@ impl Default for UpdateStatus {
             checked_at: None,
             blocked_reason: location_problem(),
             supported: cfg!(target_os = "macos"),
+            announce: false,
+            asked: 0,
         }
     }
 }
@@ -91,6 +100,9 @@ pub struct Updates {
     /// The update found by the last check, ready to install.
     pending: Mutex<Option<Update>>,
     busy: AtomicBool,
+    /// Held while a check takes `busy` and makes its first status change, so
+    /// the two are one step (see `check`).
+    start: Mutex<()>,
     clock: Mutex<CheckClock>,
     tray_item: Mutex<Option<MenuItem<tauri::Wry>>>,
 }
@@ -161,9 +173,11 @@ fn update_status(app: &AppHandle, f: impl FnOnce(&mut UpdateStatus)) {
 }
 
 /// Check for a newer release. `manual` = the user asked (Check for Updates);
-/// an automatic check also needs a replaceable install. Returns the status
-/// afterwards. Does nothing while another check or an install is running.
-pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
+/// an automatic check also needs a replaceable install. `announce` = asked
+/// from the menu-bar menu: the window shows the outcome whatever it is.
+/// Returns the status afterwards. Does nothing while another check or an
+/// install is running (the running check's outcome is then the one announced).
+pub async fn check(app: &AppHandle, manual: bool, announce: bool) -> UpdateStatus {
     let updates = app.state::<Updates>();
     if !cfg!(target_os = "macos") {
         return updates.status();
@@ -171,21 +185,39 @@ pub async fn check(app: &AppHandle, manual: bool) -> UpdateStatus {
     if !manual && location_problem().is_some() {
         return updates.status();
     }
-    let Some(_busy) = Busy::take(app) else {
-        return updates.status();
+    // Taking `busy` and the first status change are one step (`start`): an
+    // automatic check starting at the same moment as a check asked for from
+    // the menu can then never clear `announce` after the menu set it.
+    let _busy = {
+        let _start = updates.start.lock().unwrap();
+        let Some(busy) = Busy::take(app) else {
+            if announce {
+                update_status(app, |s| s.announce = true);
+            }
+            return updates.status();
+        };
+        update_status(app, |s| {
+            if s.state != "available" {
+                s.state = "checking";
+            }
+            s.checking = true;
+            if announce {
+                s.announce = true;
+            } else if !manual {
+                // What an automatic check finds is not announced: a result
+                // the user asked for earlier and left on screen goes, rather
+                // than be replaced by one they did not ask for.
+                s.announce = false;
+            }
+            // Starting a check replaces only the previous check's error: an
+            // install failure stays on screen while its update is still offered.
+            if s.error_during == Some("check") {
+                s.error = None;
+                s.error_during = None;
+            }
+        });
+        busy
     };
-    update_status(app, |s| {
-        if s.state != "available" {
-            s.state = "checking";
-        }
-        s.checking = true;
-        // Starting a check replaces only the previous check's error: an
-        // install failure stays on screen while its update is still offered.
-        if s.error_during == Some("check") {
-            s.error = None;
-            s.error_during = None;
-        }
-    });
 
     let result = match app.updater_builder().timeout(CHECK_TIMEOUT).build() {
         Ok(updater) => updater.check().await,
@@ -322,7 +354,7 @@ pub fn spawn_automatic_checks(
                 clock.due(enabled(&app), SystemTime::now())
             };
             if due {
-                tauri::async_runtime::block_on(check(&app, false));
+                tauri::async_runtime::block_on(check(&app, false, false));
             }
             thread::sleep(TICK);
         }
@@ -330,24 +362,35 @@ pub fn spawn_automatic_checks(
 }
 
 /// The tray's update item: open the window, and check first unless an update
-/// is already known (the window then shows it).
+/// is already known (the window then shows it). The window shows the outcome
+/// whatever it is (`announce`), so the item never looks like it did nothing.
 pub fn on_tray_item(app: &AppHandle, show_window: impl Fn(&AppHandle)) {
     show_window(app);
+    update_status(app, |s| {
+        s.announce = true;
+        s.asked = s.asked.wrapping_add(1);
+    });
     let known = app.state::<Updates>().pending.lock().unwrap().is_some();
     if !known {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            check(&app, true).await;
+            check(&app, true, true).await;
         });
     }
 }
 
 #[tauri::command]
 pub async fn check_for_updates(app: AppHandle) -> Result<UpdateStatus, String> {
-    Ok(check(&app, true).await)
+    Ok(check(&app, true, false).await)
 }
 
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     install(&app).await
+}
+
+/// The user dismissed the announced result of a check (see `announce`).
+#[tauri::command]
+pub fn dismiss_update_notice(app: AppHandle) {
+    update_status(&app, |s| s.announce = false);
 }

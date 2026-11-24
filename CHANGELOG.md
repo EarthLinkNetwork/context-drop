@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-24
+
+### Fixed
+
+- **Check for Updates in the menu-bar menu now always shows what it found.**
+  It used to open the window and check, but the window showed something only
+  when a newer version existed — with the latest version installed, or when the
+  check failed, it looked as if nothing had happened. The window now says
+  **Checking for updates…**, then **Context Drop vX.Y.Z is the latest version**
+  (with **OK** to dismiss it) or why the check failed (with **Try Again**). A
+  newer version is offered as before (**Install & Restart**). Automatic checks
+  stay silent unless they find an update.
+
+### Changed
+
+- **The version and Check for Updates are at the top of Settings**, on every
+  tab; they were only under Advanced. The automatic-check setting stays in
+  Settings → Advanced → Updates.
+
 ## [0.1.11] - 2026-11-21
 
 ### Fixed

@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   endRecording: vi.fn().mockResolvedValue(undefined),
   checkForUpdates: vi.fn(),
   installUpdate: vi.fn(),
+  dismissUpdateNotice: vi.fn(),
 }));
 
 vi.mock("../lib/api", () => ({ api: mocks }));
@@ -78,6 +79,8 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
       checkedAt: null,
       blockedReason: null,
       supported: true,
+      announce: false,
+      asked: 0,
     },
     ...overrides,
   };
@@ -85,6 +88,9 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // jsdom has no scrolling; App scrolls to the top when the menu asks.
+  window.scrollTo = vi.fn();
+  mocks.dismissUpdateNotice.mockResolvedValue(undefined);
   mocks.startCapture.mockResolvedValue(undefined);
   mocks.captureClipboardNow.mockResolvedValue(undefined);
   mocks.stopCapture.mockResolvedValue(undefined);
@@ -106,15 +112,117 @@ describe("App", () => {
     await waitFor(() => expect(mocks.installUpdate).toHaveBeenCalledOnce());
   });
 
-  // Tier A: Settings → Advanced → Check for Updates calls the backend.
+  // Tier A: Check for Updates is on the first thing Settings shows (no tab to
+  // find first) and calls the backend.
   it("checks for updates from Settings", async () => {
     mocks.checkForUpdates.mockResolvedValue(snapshot().update);
     mocks.getSnapshot.mockResolvedValue(snapshot());
     render(<App />);
     await userEvent.click(await screen.findByRole("tab", { name: "Settings" }));
-    await userEvent.click(screen.getByRole("tab", { name: "Advanced" }));
+    expect(screen.getByText("Context Drop v9.9.9")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Check for Updates" }));
     await waitFor(() => expect(mocks.checkForUpdates).toHaveBeenCalledOnce());
+  });
+
+  // Tier A: Check for Updates in the menu-bar menu with nothing newer: the
+  // window says this version is the latest (it used to show nothing); OK
+  // tells the backend to stop showing it.
+  it("shows the result of a check asked for from the menu, until dismissed", async () => {
+    const announced = snapshot({
+      update: { ...snapshot().update, state: "upToDate", checkedAt: 1, announce: true },
+    });
+    mocks.getSnapshot.mockResolvedValue(announced);
+    mocks.dismissUpdateNotice.mockImplementation(async () => {
+      mocks.getSnapshot.mockResolvedValue(snapshot({ update: { ...announced.update, announce: false } }));
+    });
+    render(<App />);
+    const result = await screen.findByTestId("update-check-result");
+    expect(result).toHaveTextContent("Context Drop v9.9.9 is the latest version");
+    await userEvent.click(screen.getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(mocks.dismissUpdateNotice).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByTestId("update-check-result")).toBeNull());
+  });
+
+  // Tier A: a failed check asked for from the menu shows why; Try Again checks.
+  it("shows a failed check asked for from the menu and retries it", async () => {
+    mocks.checkForUpdates.mockResolvedValue(snapshot().update);
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({
+        update: {
+          ...snapshot().update,
+          error: "Could not check for updates: offline",
+          errorDuring: "check",
+          announce: true,
+        },
+      }),
+    );
+    render(<App />);
+    expect(await screen.findByTestId("update-check-result")).toHaveTextContent("offline");
+    await userEvent.click(screen.getByRole("button", { name: "Try Again" }));
+    await waitFor(() => expect(mocks.checkForUpdates).toHaveBeenCalledOnce());
+  });
+
+  // Tier A: the result is at the top of the page, so each time the menu asks
+  // the page scrolls there (it used to stay wherever it was scrolled to, with
+  // the result out of sight). Nothing scrolls when the menu was not used.
+  it("scrolls to the top each time the menu asks for a check", async () => {
+    // One window for the whole test: the 1.5 s poll delivers each snapshot.
+    const asking = (asked: number) =>
+      snapshot({ update: { ...snapshot().update, state: "upToDate", announce: true, asked } });
+    const polled = async (n: number) =>
+      waitFor(() => expect(mocks.getSnapshot.mock.calls.length).toBeGreaterThanOrEqual(n), {
+        timeout: 4000,
+      });
+    mocks.getSnapshot.mockResolvedValue(snapshot());
+    render(<App />);
+    await screen.findByRole("tab", { name: "Settings" });
+    expect(window.scrollTo).not.toHaveBeenCalled();
+
+    mocks.getSnapshot.mockResolvedValue(asking(1));
+    await screen.findByTestId("update-check-result", undefined, { timeout: 4000 });
+    expect(window.scrollTo).toHaveBeenCalledTimes(1);
+    expect(window.scrollTo).toHaveBeenLastCalledWith(0, 0);
+
+    // Another poll with the same request does not scroll again…
+    await polled(mocks.getSnapshot.mock.calls.length + 1);
+    expect(window.scrollTo).toHaveBeenCalledTimes(1);
+
+    // …a new request from the menu does.
+    mocks.getSnapshot.mockResolvedValue(asking(2));
+    await waitFor(() => expect(window.scrollTo).toHaveBeenCalledTimes(2), { timeout: 4000 });
+  }, 15000);
+
+  // Tier A: a check made in Settings is shown in Settings only — it ends an
+  // earlier announcement instead of appearing on the Capture tab afterwards.
+  it("ends the menu's announcement when Settings checks", async () => {
+    const order: string[] = [];
+    mocks.dismissUpdateNotice.mockImplementation(async () => void order.push("dismiss"));
+    mocks.checkForUpdates.mockImplementation(async () => {
+      order.push("check");
+      return snapshot().update;
+    });
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({ update: { ...snapshot().update, state: "upToDate", announce: true, asked: 1 } }),
+    );
+    render(<App />);
+    await userEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Check for Updates" }));
+    await waitFor(() => expect(order).toEqual(["dismiss", "check"]));
+  });
+
+  // Tier B: in Settings the Updates panel already shows the result, so the
+  // window does not show it twice.
+  it("shows the announced result once while Settings is open", async () => {
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({
+        update: { ...snapshot().update, state: "upToDate", checkedAt: 1, announce: true },
+      }),
+    );
+    render(<App />);
+    await screen.findByTestId("update-check-result");
+    await userEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    expect(screen.queryByTestId("update-check-result")).toBeNull();
+    expect(screen.getByTestId("updates-status")).toHaveTextContent("You have the latest version");
   });
 
   it("renders the capturing state and item count", async () => {
