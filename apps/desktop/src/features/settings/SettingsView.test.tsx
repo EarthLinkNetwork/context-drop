@@ -306,9 +306,15 @@ describe("updates", () => {
     await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith({ autoCheckUpdates: false }));
   });
 
-  // Tier A: where there are no updates (not macOS), there is no setting for them.
+  // Tier A: where there are no updates (not macOS), there is no setting for
+  // them and no panel at the top; Advanced says why.
   it("hides the automatic check where updates are not available", () => {
+    const { view } = setup({ tab: "shortcuts", updatesSupported: false });
+    expect(screen.queryByText("Updates panel")).toBeNull();
+    view.unmount();
     setup({ tab: "advanced", updatesSupported: false });
+    expect(screen.queryByText("Updates panel")).toBeNull();
+    expect(screen.getByText(/macOS only/)).toBeVisible();
     expect(screen.queryByLabelText("Check for updates automatically")).toBeNull();
   });
 });

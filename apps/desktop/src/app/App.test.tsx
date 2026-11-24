@@ -80,6 +80,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
       blockedReason: null,
       supported: true,
       announce: false,
+      asked: 0,
     },
     ...overrides,
   };
@@ -87,6 +88,9 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // jsdom has no scrolling; App scrolls to the top when the menu asks.
+  window.scrollTo = vi.fn();
+  mocks.dismissUpdateNotice.mockResolvedValue(undefined);
   mocks.startCapture.mockResolvedValue(undefined);
   mocks.captureClipboardNow.mockResolvedValue(undefined);
   mocks.stopCapture.mockResolvedValue(undefined);
@@ -156,6 +160,44 @@ describe("App", () => {
     expect(await screen.findByTestId("update-check-result")).toHaveTextContent("offline");
     await userEvent.click(screen.getByRole("button", { name: "Try Again" }));
     await waitFor(() => expect(mocks.checkForUpdates).toHaveBeenCalledOnce());
+  });
+
+  // Tier A: the result is at the top of the page, so each time the menu asks
+  // the page scrolls there (it used to stay wherever it was scrolled to, with
+  // the result out of sight). Nothing scrolls when the menu was not used.
+  it("scrolls to the top each time the menu asks for a check", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot());
+    const view = render(<App />);
+    await screen.findByRole("tab", { name: "Settings" });
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    for (const asked of [1, 2]) {
+      mocks.getSnapshot.mockResolvedValue(
+        snapshot({ update: { ...snapshot().update, state: "upToDate", announce: true, asked } }),
+      );
+      view.unmount();
+      render(<App />);
+      await screen.findByTestId("update-check-result");
+      await waitFor(() => expect(window.scrollTo).toHaveBeenCalledTimes(asked));
+      expect(window.scrollTo).toHaveBeenLastCalledWith(0, 0);
+    }
+  });
+
+  // Tier A: a check made in Settings is shown in Settings only — it ends an
+  // earlier announcement instead of appearing on the Capture tab afterwards.
+  it("ends the menu's announcement when Settings checks", async () => {
+    const order: string[] = [];
+    mocks.dismissUpdateNotice.mockImplementation(async () => void order.push("dismiss"));
+    mocks.checkForUpdates.mockImplementation(async () => {
+      order.push("check");
+      return snapshot().update;
+    });
+    mocks.getSnapshot.mockResolvedValue(
+      snapshot({ update: { ...snapshot().update, state: "upToDate", announce: true, asked: 1 } }),
+    );
+    render(<App />);
+    await userEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Check for Updates" }));
+    await waitFor(() => expect(order).toEqual(["dismiss", "check"]));
   });
 
   // Tier B: in Settings the Updates panel already shows the result, so the

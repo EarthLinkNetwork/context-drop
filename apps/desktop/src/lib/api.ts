@@ -95,6 +95,8 @@ export interface UpdateStatus {
    * found until it is dismissed or an automatic check starts.
    */
   announce: boolean;
+  /** How many times the user has asked from the menu-bar menu. */
+  asked: number;
 }
 
 export interface AppSnapshot {

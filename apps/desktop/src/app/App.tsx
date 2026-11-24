@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StatusBadge } from "../components/StatusBadge";
 import { CapturePanel } from "../features/capture/CapturePanel";
 import { CurrentPacket } from "../features/packets/CurrentPacket";
@@ -50,6 +50,14 @@ export function App() {
   const [tab, setTab] = useState<"capture" | "settings">("capture");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("shortcuts");
   const [openItem, setOpenItem] = useState<RecentItem | null>(null);
+
+  // Check for Updates in the menu-bar menu: the result is at the top of the
+  // page (the banner, or the Updates panel in Settings), so bring that into
+  // view each time the user asks, wherever the page was scrolled to.
+  const asked = state.snapshot?.update.asked ?? 0;
+  useEffect(() => {
+    if (asked > 0) window.scrollTo(0, 0);
+  }, [asked]);
 
   if (state.loading && !state.snapshot) {
     return (
@@ -212,7 +220,9 @@ export function App() {
             <UpdatesPanel
               appVersion={snap.appVersion}
               update={snap.update}
-              onCheck={() => void state.checkForUpdates()}
+              // A check made here is shown here only: what the menu asked
+              // for earlier is no longer the result to announce.
+              onCheck={() => void state.dismissUpdateNotice().then(() => state.checkForUpdates())}
               onInstall={() => void state.installUpdate()}
             />
           }

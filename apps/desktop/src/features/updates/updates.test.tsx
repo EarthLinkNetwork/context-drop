@@ -20,6 +20,7 @@ function status(over: Partial<UpdateStatus> = {}): UpdateStatus {
     blockedReason: null,
     supported: true,
     announce: false,
+    asked: 0,
     ...over,
   };
 }
