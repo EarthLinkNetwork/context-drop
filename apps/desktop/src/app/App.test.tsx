@@ -166,21 +166,31 @@ describe("App", () => {
   // the page scrolls there (it used to stay wherever it was scrolled to, with
   // the result out of sight). Nothing scrolls when the menu was not used.
   it("scrolls to the top each time the menu asks for a check", async () => {
+    // One window for the whole test: the 1.5 s poll delivers each snapshot.
+    const asking = (asked: number) =>
+      snapshot({ update: { ...snapshot().update, state: "upToDate", announce: true, asked } });
+    const polled = async (n: number) =>
+      waitFor(() => expect(mocks.getSnapshot.mock.calls.length).toBeGreaterThanOrEqual(n), {
+        timeout: 4000,
+      });
     mocks.getSnapshot.mockResolvedValue(snapshot());
-    const view = render(<App />);
+    render(<App />);
     await screen.findByRole("tab", { name: "Settings" });
     expect(window.scrollTo).not.toHaveBeenCalled();
-    for (const asked of [1, 2]) {
-      mocks.getSnapshot.mockResolvedValue(
-        snapshot({ update: { ...snapshot().update, state: "upToDate", announce: true, asked } }),
-      );
-      view.unmount();
-      render(<App />);
-      await screen.findByTestId("update-check-result");
-      await waitFor(() => expect(window.scrollTo).toHaveBeenCalledTimes(asked));
-      expect(window.scrollTo).toHaveBeenLastCalledWith(0, 0);
-    }
-  });
+
+    mocks.getSnapshot.mockResolvedValue(asking(1));
+    await screen.findByTestId("update-check-result", undefined, { timeout: 4000 });
+    expect(window.scrollTo).toHaveBeenCalledTimes(1);
+    expect(window.scrollTo).toHaveBeenLastCalledWith(0, 0);
+
+    // Another poll with the same request does not scroll again…
+    await polled(mocks.getSnapshot.mock.calls.length + 1);
+    expect(window.scrollTo).toHaveBeenCalledTimes(1);
+
+    // …a new request from the menu does.
+    mocks.getSnapshot.mockResolvedValue(asking(2));
+    await waitFor(() => expect(window.scrollTo).toHaveBeenCalledTimes(2), { timeout: 4000 });
+  }, 15000);
 
   // Tier A: a check made in Settings is shown in Settings only — it ends an
   // earlier announcement instead of appearing on the Capture tab afterwards.
